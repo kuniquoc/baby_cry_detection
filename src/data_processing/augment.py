@@ -6,7 +6,7 @@ import torchaudio.transforms as T
 import soundfile as sf
 
 # Original data directory & Augmented data directory
-RAW_DATA_DIR = "data/raw"
+SEGMENTED_DATA_DIR = "data/segmented"
 AUGMENTED_DATA_DIR = "data/augmented"
 
 # Function to create augmentations and save new files
@@ -39,8 +39,8 @@ def augment_and_save(file_path, label, augment_id):
 
 # Iterate through original data and create augmentations
 for label in ["cry", "not_cry"]:
-    raw_files = os.listdir(os.path.join(RAW_DATA_DIR, label))
-    for i, file in enumerate(raw_files):
-        augment_and_save(os.path.join(RAW_DATA_DIR, label, file), label, i)
+    segmented_files = os.listdir(os.path.join(SEGMENTED_DATA_DIR, label))
+    for i, file in enumerate(segmented_files):
+        augment_and_save(os.path.join(SEGMENTED_DATA_DIR, label, file), label, i)
 
 print("Augmentation & Saving Completed!")

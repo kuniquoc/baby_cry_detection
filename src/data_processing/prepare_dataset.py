@@ -2,7 +2,7 @@ import os
 import shutil
 import random
 
-def create_dataset_splits(raw_dir, dataset_dir, train_ratio=0.7, val_ratio=0.15):
+def create_dataset_splits(segmented_dir, dataset_dir, train_ratio=0.7, val_ratio=0.15):
     """
     Split data into train, validation and test sets.
     test_ratio is implicitly 1 - (train_ratio + val_ratio)
@@ -19,7 +19,7 @@ def create_dataset_splits(raw_dir, dataset_dir, train_ratio=0.7, val_ratio=0.15)
     # Process each class (cry and not_cry)
     for label in ['cry', 'not_cry']:
         # Get all files for this class
-        source_dir = os.path.join(raw_dir, label)
+        source_dir = os.path.join(segmented_dir, label)
         if not os.path.exists(source_dir):
             print(f"Warning: {source_dir} does not exist")
             continue
@@ -59,6 +59,6 @@ def create_dataset_splits(raw_dir, dataset_dir, train_ratio=0.7, val_ratio=0.15)
         print(f"  Test: {len(test_files)} files")
 
 if __name__ == "__main__":
-    raw_dir = "data/raw"
+    segmented_dir = "data/segmented"
     dataset_dir = "data/dataset"
-    create_dataset_splits(raw_dir, dataset_dir) 
+    create_dataset_splits(segmented_dir, dataset_dir) 
