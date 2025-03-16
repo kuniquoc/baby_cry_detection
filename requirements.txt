@@ -1,2 +1,5 @@
 django
 djangorestframework
+librosa
+soundfile
+numpy
