@@ -2,9 +2,64 @@ import os
 import librosa
 import soundfile as sf
 import numpy as np
-from collections import defaultdict
 from pathlib import Path
-import random
+from .preprocess import apply_vad
+
+def analyze_audio_segments(audio_data, sr=16000, segment_length=3, hop_length=1):
+    """Analyze audio data by splitting into segments and applying VAD.
+    
+    Args:
+        audio_data: Audio signal array
+        sr: Sample rate (default: 16000)
+        segment_length: Length of each segment in seconds
+        hop_length: Hop length between segments in seconds
+    
+    Returns:
+        list: List of dictionaries containing segment information
+    """
+    # Calculate samples per segment & step size
+    segment_samples = segment_length * sr
+    step_samples = hop_length * sr
+    
+    # Split file into segments using sliding window
+    segments_info = []
+    start_sample = 0
+    segment_index = 0
+    
+    while start_sample + segment_samples <= len(audio_data):
+        # Extract segment
+        segment = audio_data[start_sample:start_sample + segment_samples]
+        
+        # Apply VAD to segment
+        audio_vad, is_crying, mean_f0 = apply_vad(segment, sr)
+        
+        if is_crying:
+            # Calculate time range for this segment
+            start_time = start_sample / sr
+            end_time = (start_sample + segment_samples) / sr
+            
+            segment_info = {
+                'audio': audio_vad,
+                'start_time': start_time,
+                'end_time': end_time,
+                'index': segment_index,
+                'f0': mean_f0
+            }
+            segments_info.append(segment_info)
+        
+        start_sample += step_samples
+        segment_index += 1
+    
+    return segments_info
+
+def pad_or_trim_segment(audio, sr, target_length=3):
+    """Ensure segment is exactly the target length"""
+    target_samples = int(sr * target_length)
+    if len(audio) > target_samples:
+        return audio[:target_samples]
+    elif len(audio) < target_samples:
+        return np.pad(audio, (0, target_samples - len(audio)))
+    return audio
 
 def split_audio(file_path, segment_length=3, hop_length=1):
     """Split audio file into segments using sliding window.
