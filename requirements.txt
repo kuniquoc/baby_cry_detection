@@ -13,7 +13,7 @@ torchaudio
 # Deep learning
 torch
 torchvision
-
+tensorboard>=2.13.0
 # Web API (Django)
 django
 djangorestframework

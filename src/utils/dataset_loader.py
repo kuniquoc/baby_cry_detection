@@ -1,4 +1,5 @@
 import os
+import sys
 import numpy as np
 import pandas as pd
 import librosa
@@ -10,10 +11,12 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from collections import defaultdict
 
-# Import các hàm từ data_processing
-from data_processing.preprocess import apply_vad, extract_mfcc
-from data_processing.prepare_dataset import create_dataset_splits
-from data_processing.split_audio import split_audio, save_segments
+# Add project root to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+# Replace relative imports with absolute imports
+from src.data_processing.preprocess import apply_vad, extract_mfcc
+from src.data_processing.prepare_dataset import create_dataset_splits
+from src.data_processing.split_audio import split_audio, save_segments
 
 class AudioDataset(Dataset):
     """
@@ -118,9 +121,9 @@ class DatasetLoader:
         
         # Tạo DataFrame từ metadata
         df = pd.DataFrame(metadata)
-        print(f"Loaded metadata with {len(df)} files")
-        print(f"Split distribution: {df['split'].value_counts().to_dict()}")
-        print(f"Label distribution: {df['label'].value_counts().to_dict()}")
+        # print(f"Loaded metadata with {len(df)} files")
+        # print(f"Split distribution: {df['split'].value_counts().to_dict()}")
+        # print(f"Label distribution: {df['label'].value_counts().to_dict()}")
         
         return df
     
@@ -373,20 +376,20 @@ class DatasetLoader:
         plt.xlabel('Time (s)')
         plt.ylabel('Amplitude')
         
-        # Hiển thị dạng sóng sau VAD
-        y_vad, isBabyCrying, f0 = apply_vad(y, sr=self.sample_rate)
+        # # Hiển thị dạng sóng sau VAD
+        # y_vad, isBabyCrying, f0 = apply_vad(y, sr=self.sample_rate)
 
-        print("f0", f0)
+        # print("f0", f0)
 
-        if not isBabyCrying:
-            print("BabyCry:",isBabyCrying)
-            return;
+        # if not isBabyCrying:
+        #     print("BabyCry:",isBabyCrying)
+        #     return;
             
-        plt.subplot(3, 1, 2)
-        plt.plot(np.linspace(0, len(y_vad)/sr, len(y_vad)), y_vad)
-        plt.title(f'Waveform after VAD - {label} ({split})')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Amplitude')
+        # plt.subplot(3, 1, 2)
+        # plt.plot(np.linspace(0, len(y_vad)/sr, len(y_vad)), y_vad)
+        # plt.title(f'Waveform after VAD - {label} ({split})')
+        # plt.xlabel('Time (s)')
+        # plt.ylabel('Amplitude')
         
         # Hiển thị MFCC
         plt.subplot(3, 1, 3)
@@ -445,8 +448,8 @@ if __name__ == "__main__":
     # loader.process_raw_data()
     
     # Tải metadata
-    metadata = loader.load_metadata()
-    print(metadata.head())
+    # metadata = loader.load_metadata()
+    # print(metadata.head())
     
     # # Chuẩn bị dataset
     # train_loader, val_loader, test_loader = loader.prepare_dataset(batch_size=32)

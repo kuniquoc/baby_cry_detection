@@ -1,0 +1,1 @@
+from .vad_api import app
