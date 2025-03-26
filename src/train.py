@@ -73,17 +73,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         writer.add_scalar('Accuracy/train', train_acc, epoch)
         writer.add_scalar('Accuracy/val', val_acc, epoch)
         
-        # Save checkpoint if validation loss improved
+        # Prepare checkpoint data
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'val_loss': avg_val_loss,
+            'val_acc': val_acc,
+            'train_loss': avg_train_loss,
+            'train_acc': train_acc,
+            'best_val_loss': best_val_loss
+        }
+        
+        # Save last checkpoint
+        torch.save(checkpoint, checkpoint_dir / 'last_model.pth')
+        
+        # Save best model if validation loss improved
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            checkpoint = {
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'val_loss': avg_val_loss,
-                'val_acc': val_acc
-            }
-            torch.save(checkpoint, checkpoint_dir / f'best_model.pth')
+            torch.save(checkpoint, checkpoint_dir / 'best_model.pth')
+            print(f'\nNew best model saved! (Val Loss: {avg_val_loss:.4f})')
             
         print(f'\nEpoch {epoch+1}/{num_epochs}:')
         print(f'Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%')
