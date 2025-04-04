@@ -1,2 +1,35 @@
-django
-djangorestframework
+# Core libraries
+numpy
+pandas
+matplotlib
+tqdm
+scikit-learn
+
+# Audio processing
+librosa
+soundfile
+torchaudio
+
+# Deep learning
+torch
+torchvision
+tensorboard>=2.13.0
+
+# Web API (Django)
+fastapi 
+uvicorn 
+python-multipart
+
+# Testing and development
+pytest
+black
+flake8
+
+# Deployment
+python-dotenv
+whitenoise
+
+# Utilities
+pathlib
+requests
+
