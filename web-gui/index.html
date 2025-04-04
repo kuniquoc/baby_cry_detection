@@ -1,17 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Baby Cry VAD Tester</title>
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
     <div class="container">
         <header>
             <h1>Kiểm Tra VAD Tiếng Khóc Trẻ Em</h1>
         </header>
-        
+
         <main>
             <div class="control-panel">
                 <div class="file-input">
@@ -19,19 +21,19 @@
                     <label for="audioFile" class="file-input-label">Chọn File Âm Thanh</label>
                     <span id="fileName" class="file-name"></span>
                 </div>
-                
+
                 <button id="processButton" class="process-button" disabled>Áp Dụng VAD</button>
             </div>
-            
+
             <div id="errorMessage" class="error-message"></div>
-            
+
             <div class="audio-players">
                 <div class="audio-player">
                     <h3>Âm thanh gốc</h3>
                     <audio id="originalAudio" controls></audio>
                 </div>
             </div>
-            
+
             <div class="vad-results" id="vadResultsContainer" style="display: none;">
                 <h3>Kết quả VAD</h3>
                 <div class="result-item">
@@ -39,13 +41,22 @@
                     <span id="isBabyCrying" class="result-value"></span>
                 </div>
             </div>
-            
+
+            <div id="timelineContainer" class="timeline-container" style="display: none;">
+                <h3>Biểu đồ thời gian</h3>
+                <div class="timeline-visualization">
+                    <div id="timelineChart" class="timeline-chart"></div>
+                    <div id="timelineAxis" class="timeline-axis"></div>
+                </div>
+            </div>
+
             <div id="segmentsContainer" class="segments-container">
                 <!-- Segments will be added here dynamically -->
             </div>
         </main>
     </div>
-    
+
     <script src="script.js"></script>
 </body>
+
 </html>

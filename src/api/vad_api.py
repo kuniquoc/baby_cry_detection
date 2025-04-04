@@ -1,35 +1,44 @@
 import os
 import sys
-import numpy as np
 import librosa
 import soundfile as sf
 import tempfile
-from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
-import base64
-
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from src.data_processing.split_audio import analyze_audio_segments, pad_or_trim_segment
+from src.data_processing import analyze_audio_segments  # Assuming this function is defined in data_processing.py
+import uvicorn
 
-app = Flask(__name__)
-CORS(app)  # Cho phép CORS để frontend có thể gọi API
+app = FastAPI()
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allows all origins
+    allow_credentials=True,
+    allow_methods=["*"],  # Allows all methods
+    allow_headers=["*"],  # Allows all headers
+)
 
 # Add global variable to store processed audio file path
 processed_audio_path = None
 
-@app.route('/api/process-audio', methods=['POST'])
-def process_audio():
+@app.post("/api/process-audio")
+async def process_audio(audio: UploadFile = File(...)):
     """API endpoint to process audio file with VAD"""
-    if 'audio' not in request.files:
-        return jsonify({'error': 'No audio file provided'}), 400
-    
-    file = request.files['audio']
+    if not audio:
+        raise HTTPException(status_code=400, detail="No audio file provided")
     
     # Create temp input file
     temp_input = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
     temp_input.close()
-    file.save(temp_input.name)
+    
+    # Save uploaded file
+    with open(temp_input.name, "wb") as buffer:
+        content = await audio.read()
+        buffer.write(content)
     
     try:
         # Load audio
@@ -39,11 +48,11 @@ def process_audio():
         crying_segments = analyze_audio_segments(y, sr)
         
         if not crying_segments:
-            return jsonify({
+            return {
                 'is_baby_crying': False,
                 'segments': [],
                 'message': 'No crying detected in any segment'
-            })
+            }
         
         # Store processed segments
         global processed_audio_path
@@ -64,36 +73,36 @@ def process_audio():
                 'f0': float(seg['f0'])
             })
         
-        return jsonify({
+        return {
             'is_baby_crying': True,
             'segments': segments_info,
             'message': f'Found {len(crying_segments)} crying segments'
-        })
+        }
         
     except Exception as e:
         print(f"Error processing audio: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
     
     finally:
         if os.path.exists(temp_input.name):
             os.unlink(temp_input.name)
 
-@app.route('/api/get-processed-audio/<int:segment_index>', methods=['GET'])
-def get_processed_audio(segment_index):
+@app.get("/api/get-processed-audio/{segment_index}")
+async def get_processed_audio(segment_index: int):
     """API endpoint to get a specific processed audio segment"""
     global processed_audio_path
     
     if not processed_audio_path or not isinstance(processed_audio_path, list):
-        return jsonify({'error': 'No processed audio available'}), 404
+        raise HTTPException(status_code=404, detail="No processed audio available")
     
     if segment_index < 0 or segment_index >= len(processed_audio_path):
-        return jsonify({'error': 'Invalid segment index'}), 404
+        raise HTTPException(status_code=404, detail="Invalid segment index")
     
     audio_path = processed_audio_path[segment_index]
     if not os.path.exists(audio_path):
-        return jsonify({'error': 'Audio file not found'}), 404
+        raise HTTPException(status_code=404, detail="Audio file not found")
     
-    return send_file(audio_path, mimetype='audio/wav')
+    return FileResponse(audio_path, media_type="audio/wav")
 
 def cleanup():
     """Clean up all temporary audio files"""
@@ -106,8 +115,9 @@ def cleanup():
                 except:
                     pass
 
+# Register cleanup function
 import atexit
 atexit.register(cleanup)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    uvicorn.run(app, host="0.0.0.0", port=5000)

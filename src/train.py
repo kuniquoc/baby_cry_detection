@@ -35,15 +35,16 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             optimizer.step()
             
             train_loss += loss.item()
-            _, predicted = outputs.max(1)
+            # Binary classification: threshold at 0.5
+            predicted = (outputs > 0.5).float()
             train_total += targets.size(0)
-            train_correct += predicted.eq(targets).sum().item()
+            train_correct += (predicted == targets).sum().item()
             
             pbar.set_postfix({
                 'loss': train_loss/(batch_idx+1),
                 'acc': 100.*train_correct/train_total
             })
-        
+            
         # Validation phase
         model.eval()
         val_loss = 0
@@ -57,9 +58,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 loss = criterion(outputs, targets)
                 
                 val_loss += loss.item()
-                _, predicted = outputs.max(1)
+                # Binary classification: threshold at 0.5
+                predicted = (outputs > 0.5).float()
                 val_total += targets.size(0)
-                val_correct += predicted.eq(targets).sum().item()
+                val_correct += (predicted == targets).sum().item()
         
         # Calculate epoch metrics
         avg_train_loss = train_loss / len(train_loader)
@@ -103,7 +105,11 @@ def main():
     # Lấy thư mục gốc của project
     base_dir = Path(__file__).resolve().parent.parent  # Lấy thư mục cha của thư mục chứa file hiện tại
     data_dir = base_dir / 'data/dataset'
+    processed_dir = base_dir / 'data/processed'
     runs_dir = base_dir / 'runs'
+    
+    # Create processed directory if it doesn't exist
+    os.makedirs(processed_dir, exist_ok=True)
     
     batch_size = 32
     num_epochs = 50
@@ -119,18 +125,40 @@ def main():
     # Initialize tensorboard writer
     writer = SummaryWriter(run_dir)
     
-    # Load dataset
-    dataset_loader = DatasetLoader(data_dir=data_dir)
+    # Load dataset with processed features support
+    dataset_loader = DatasetLoader(data_dir=data_dir, processed_dir=processed_dir)
     train_loader, val_loader, test_loader = dataset_loader.prepare_dataset(
         batch_size=batch_size
     )
     
-    # Get class weights for imbalanced dataset
-    class_weights = dataset_loader.get_class_weights().to(device)
+    # Get class weight for imbalanced dataset
+    pos_weight = dataset_loader.get_class_weights().to(device)
     
-    # Initialize model and loss function
+    # Initialize model
     model = CryingCNN().to(device)
-    criterion = nn.BCELoss(weight=class_weights)
+    
+    # BCELoss vs BCEWithLogitsLoss:
+    #
+    # 1. BCELoss (Binary Cross Entropy Loss):
+    #    - Input: Requires model outputs with values between 0 and 1 (model must have a sigmoid activation)
+    #    - Output: Computes binary cross entropy loss between input and target
+    #    - Formula: -[y*log(x) + (1-y)*log(1-x)] where x is prediction and y is target
+    #    - Usage: model_output = sigmoid(logits) -> BCELoss(model_output, targets)
+    #
+    # 2. BCEWithLogitsLoss:
+    #    - Input: Takes raw logits from model (NO sigmoid applied in the model)
+    #    - Output: Combines sigmoid activation and binary cross entropy in one operation
+    #    - Formula: -[y*log(sigmoid(x)) + (1-y)*log(1-sigmoid(x))]
+    #    - Usage: BCEWithLogitsLoss(raw_logits, targets)
+    #    - Advantages:
+    #      a. More numerically stable (prevents underflow/overflow)
+    #      b. Supports class weighting via pos_weight parameter
+    #      c. Computationally efficient by combining sigmoid and BCE
+    #
+    # In practice: When using BCEWithLogitsLoss, the model should NOT apply sigmoid to outputs
+    
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     # Train model

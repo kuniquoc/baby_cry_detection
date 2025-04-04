@@ -4,12 +4,12 @@ import numpy as np
 import pandas as pd
 import librosa
 import torch
-from torch.utils.data import Dataset, DataLoader
+import pickle
+from torch.utils.data import DataLoader, TensorDataset
 from pathlib import Path
-from sklearn.preprocessing import LabelEncoder
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from collections import defaultdict
+from sklearn.preprocessing import LabelEncoder
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -17,40 +17,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from src.data_processing.preprocess import apply_vad, extract_mfcc
 from src.data_processing.prepare_dataset import create_dataset_splits
 from src.data_processing.split_audio import split_audio, save_segments
-
-class AudioDataset(Dataset):
-    """
-    Dataset PyTorch cho dữ liệu âm thanh
-    """
-    def __init__(self, file_paths, labels, transform=None, augment=False):
-        """
-        Khởi tạo dataset
-        
-        Args:
-            file_paths (list): Danh sách đường dẫn file âm thanh
-            labels (list): Danh sách nhãn tương ứng
-            transform (callable, optional): Hàm biến đổi để áp dụng cho mẫu
-            augment (bool): Có áp dụng data augmentation hay không
-        """
-        self.file_paths = file_paths
-        self.labels = labels
-        self.transform = transform
-        self.augment = augment
-        
-    def __len__(self):
-        return len(self.file_paths)
-    
-    def __getitem__(self, idx):
-        file_path = self.file_paths[idx]
-        label = self.labels[idx]
-        
-        # Tải và xử lý âm thanh
-        if self.transform:
-            features = self.transform(file_path, self.augment)
-        else:
-            features = None
-            
-        return features, label
 
 class DatasetLoader:
     """
@@ -68,27 +34,36 @@ class DatasetLoader:
         label_encoder (LabelEncoder): Bộ mã hóa nhãn
     """
     
-    def __init__(self, data_dir='data/dataset', sample_rate=16000, n_mels=40, n_fft=512, 
+    def __init__(self, data_dir='data/dataset', processed_dir='data/processed', sample_rate=16000, n_mels=40, n_fft=512, 
                  hop_length=160, duration=3.0):
         """
         Khởi tạo DatasetLoader với các tham số cấu hình.
         
         Args:
             data_dir (str): Đường dẫn đến thư mục chứa dữ liệu
+            processed_dir (str): Đường dẫn đến thư mục lưu đặc trưng đã xử lý
             sample_rate (int): Tần số lấy mẫu cho âm thanh
             n_mels (int): Số lượng mel bands cho việc trích xuất đặc trưng
             n_fft (int): Kích thước cửa sổ FFT
             hop_length (int): Độ dài bước nhảy cho FFT
             duration (float): Độ dài mỗi đoạn âm thanh tính bằng giây
+            classes (list): Danh sách các lớp ('cry', 'not_cry')
+            label_encoder (LabelEncoder): Bộ mã hóa nhãn
         """
         self.data_dir = Path(data_dir)
+        self.processed_dir = Path(processed_dir)
         self.sample_rate = sample_rate
         self.n_mels = n_mels
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.duration = duration
-        self.classes = ['cry', 'not_cry']
-        self.label_encoder = LabelEncoder().fit(self.classes)
+        self.classes = ['not_cry', 'cry']  # Định nghĩa các lớp cho mô hình phân loại
+        self.label_encoder = LabelEncoder().fit(self.classes)  # Chuyển nhãn text thành số (0, 1)
+        
+        # Tạo cấu trúc thư mục cho dữ liệu đã xử lý, tách riêng cho mỗi lớp
+        for split in ['train', 'val', 'test']:
+            for label in self.classes:  # Tạo thư mục cho mỗi lớp cry và not_cry
+                os.makedirs(self.processed_dir / split / label, exist_ok=True)
         
     def load_metadata(self):
         """
@@ -142,25 +117,9 @@ class DatasetLoader:
             # Tải file âm thanh với librosa
             y, sr = librosa.load(audio_path, sr=self.sample_rate)
             
-            # Áp dụng VAD trước
-            y_vad = apply_vad(y, sr=self.sample_rate)
-            
-            # Nếu VAD loại bỏ quá nhiều, sử dụng lại âm thanh gốc
-            if len(y_vad) < 0.5 * len(y):
-                y_vad = y
-                
-            # Sau đó mới điều chỉnh độ dài
-            target_length = int(self.duration * self.sample_rate)
-            if len(y_vad) < target_length:
-                # Pad nếu âm thanh ngắn hơn độ dài mục tiêu
-                y_vad = np.pad(y_vad, (0, target_length - len(y_vad)), 'constant')
-            else:
-                # Cắt nếu âm thanh dài hơn độ dài mục tiêu
-                y_vad = y_vad[:target_length]
-            
             # Trích xuất MFCC từ preprocess.py
             mfccs = extract_mfcc(
-                y_vad, 
+                y, 
                 sr=self.sample_rate,
                 n_mfcc=self.n_mels,
                 n_fft=self.n_fft,
@@ -180,9 +139,202 @@ class DatasetLoader:
             print(f"Error extracting features from {audio_path}: {e}")
             return None
     
+    def get_processed_path(self, file_path):
+        """
+        Tạo đường dẫn đến file đã xử lý dựa trên đường dẫn file gốc.
+        
+        Args:
+            file_path (str): Đường dẫn đến file âm thanh
+            
+        Returns:
+            Path: Đường dẫn đến file đặc trưng đã xử lý (.npy)
+        """
+        # Chuyển thành đối tượng Path
+        orig_path = Path(file_path)
+        # Lấy tên file và vị trí (split/label)
+        splits = orig_path.parts
+        
+        # Tìm vị trí của 'train', 'val', 'test' trong đường dẫn
+        for i, part in enumerate(splits):
+            if part in ['train', 'val', 'test']:
+                split = part
+                label = splits[i+1]  # Giả sử label là thư mục sau split
+                filename = orig_path.stem  # Tên file không có phần mở rộng
+                
+                # Tạo đường dẫn đến file đã xử lý
+                return self.processed_dir / split / label / f"{filename}.npy"
+                
+        # Nếu không tìm thấy cấu trúc phù hợp, tạo đường dẫn nguyên bản
+        return self.processed_dir / f"{orig_path.stem}.npy"
+    
+    def save_features(self, features, file_path):
+        """
+        Lưu đặc trưng đã trích xuất vào thư mục processed.
+        
+        Args:
+            features (torch.Tensor): Đặc trưng để lưu
+            file_path (str): Đường dẫn đến file âm thanh gốc
+        """
+        # Tạo đường dẫn đến file đã xử lý
+        processed_path = self.get_processed_path(file_path)
+        
+        # Tạo thư mục nếu chưa tồn tại
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Lưu đặc trưng dưới dạng numpy array
+        try:
+            # Convert torch tensor to numpy array if needed
+            if isinstance(features, torch.Tensor):
+                features_np = features.cpu().numpy()
+            else:
+                features_np = features
+                
+            np.save(processed_path, features_np)
+        except Exception as e:
+            print(f"Error saving feature file {processed_path}: {e}")
+            # If saving fails, try to remove the potentially corrupted file
+            if processed_path.exists():
+                try:
+                    os.remove(processed_path)
+                except:
+                    pass
+    
+    def load_features(self, file_path):
+        """
+        Tải đặc trưng đã lưu từ thư mục processed.
+        
+        Args:
+            file_path (str): Đường dẫn đến file âm thanh gốc
+            
+        Returns:
+            torch.Tensor: Đặc trưng đã trích xuất hoặc None nếu không tồn tại
+        """
+        # Tạo đường dẫn đến file đã xử lý
+        processed_path = self.get_processed_path(file_path)
+        
+        # Kiểm tra xem file có tồn tại không
+        if processed_path.exists():
+            try:
+                # Tải đặc trưng từ file numpy
+                features_np = np.load(processed_path)
+                # Chuyển đổi sang tensor PyTorch
+                return torch.from_numpy(features_np).float()
+            except Exception as e:
+                print(f"Error loading numpy file {processed_path}: {e}")
+                # Xóa file bị lỗi để tính toán lại
+                try:
+                    os.remove(processed_path)
+                    print(f"Removed corrupted feature file: {processed_path}")
+                except Exception as ex:
+                    print(f"Could not remove file: {ex}")
+                return None
+        
+        return None
+    
+    def convert_audio_to_mfcc(self, force_recompute=False):
+        """
+        Chuyển đổi tất cả file âm thanh trong dataset thành đặc trưng MFCC và lưu dưới dạng npy.
+        Tách riêng quá trình chuyển đổi audio sang MFCC.
+        
+        Args:
+            force_recompute (bool): Bắt buộc tính toán lại tất cả các đặc trưng
+        
+        Returns:
+            int: Số lượng file đã được xử lý
+        """
+        print("Converting audio files to MFCC features...")
+        
+        # Tải metadata
+        df = self.load_metadata()
+        
+        if df.empty:
+            print("No audio files found in metadata.")
+            return 0
+        
+        # Đếm số lượng file đã xử lý
+        processed_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        # Lấy đường dẫn file
+        file_paths = df['file_path'].values
+        labels = df['label'].values
+        splits = df['split'].values
+        
+        # Trích xuất đặc trưng cho từng file
+        for i, (file_path, label, split) in enumerate(tqdm(zip(file_paths, labels, splits), 
+                                                          total=len(file_paths), 
+                                                          desc="Converting to MFCCs")):
+            processed_path = self.get_processed_path(file_path)
+            
+            # Kiểm tra xem đặc trưng đã tồn tại chưa
+            if processed_path.exists() and not force_recompute:
+                skipped_count += 1
+                continue
+                
+            # Trích xuất đặc trưng
+            features = self.extract_features(file_path, augment=False)
+            
+            if features is not None:
+                # Lưu đặc trưng vào thư mục processed
+                self.save_features(features, file_path)
+                processed_count += 1
+            else:
+                failed_count += 1
+                
+        print(f"MFCC conversion completed:")
+        print(f"- Processed: {processed_count} files")
+        print(f"- Skipped (already exists): {skipped_count} files")
+        print(f"- Failed: {failed_count} files")
+        
+        return processed_count
+    
+    def _precompute_mfccs(self, df, augment=False):
+        """
+        Tải các đặc trưng MFCC đã được tính toán từ thư mục processed.
+        
+        Args:
+            df (pd.DataFrame): DataFrame chứa thông tin về các file âm thanh
+            augment (bool): Áp dụng data augmentation hay không
+            
+        Returns:
+            tuple: (features_list, labels_list) - Danh sách đặc trưng và nhãn tương ứng
+        """
+        if df.empty:
+            return [], []
+        
+        features_list = []
+        labels_list = []
+        
+        # Lấy đường dẫn file và nhãn
+        file_paths = df['file_path'].values
+        labels = self.label_encoder.transform(df['label'].values)
+        
+        # Tải đặc trưng đã được tính toán từ thư mục processed
+        for i, (file_path, label) in enumerate(tqdm(zip(file_paths, labels), 
+                                                  total=len(file_paths), 
+                                                  desc="Loading MFCCs")):
+            # Tải đặc trưng đã được lưu
+            features = self.load_features(file_path)
+            
+            if features is not None:
+                # Áp dụng augmentation nếu được yêu cầu
+                if augment:
+                    # Chuyển về numpy để augment
+                    features_np = features.numpy() if isinstance(features, torch.Tensor) else features
+                    features_np = self._apply_augmentation(features_np)
+                    features = torch.from_numpy(features_np).float()
+                
+                features_list.append(features)
+                labels_list.append(label)
+            else:
+                print(f"Warning: Missing processed feature for {file_path}")
+        
+        return features_list, labels_list
+
     def prepare_dataset(self, batch_size=32, num_workers=4):
         """
-        Chuẩn bị dataset PyTorch từ metadata.
+        Chuẩn bị dataset PyTorch bằng cách tải các đặc trưng MFCC đã tính toán từ thư mục processed.
         
         Args:
             batch_size (int): Kích thước batch
@@ -199,10 +351,30 @@ class DatasetLoader:
         val_df = df[df['split'] == 'val']
         test_df = df[df['split'] == 'test']
         
-        # Tạo các PyTorch dataset
-        train_dataset = self._create_dataset(train_df, augment=True) if not train_df.empty else None
-        val_dataset = self._create_dataset(val_df, augment=False) if not val_df.empty else None
-        test_dataset = self._create_dataset(test_df, augment=False) if not test_df.empty else None
+        print("Loading MFCC features from processed directory...")
+        
+        # Tải đặc trưng đã được tính toán từ thư mục processed
+        train_features, train_labels = self._precompute_mfccs(train_df, augment=False)
+        val_features, val_labels = self._precompute_mfccs(val_df, augment=False)
+        test_features, test_labels = self._precompute_mfccs(test_df, augment=False)
+        
+        print(f"Loaded features - Train: {len(train_features)}, Val: {len(val_features)}, Test: {len(test_features)}")
+        
+        # Create TensorDatasets với các đặc trưng đã tính toán trước
+        train_dataset = TensorDataset(
+            torch.stack(train_features) if train_features else torch.tensor([]),
+            torch.tensor(train_labels, dtype=torch.float) if train_labels else torch.tensor([])
+        ) if train_features and len(train_features) > 0 else None
+        
+        val_dataset = TensorDataset(
+            torch.stack(val_features) if val_features else torch.tensor([]),
+            torch.tensor(val_labels, dtype=torch.float) if val_labels else torch.tensor([])
+        ) if val_features and len(val_features) > 0 else None
+        
+        test_dataset = TensorDataset(
+            torch.stack(test_features) if test_features else torch.tensor([]),
+            torch.tensor(test_labels, dtype=torch.float) if test_labels else torch.tensor([])
+        ) if test_features and len(test_features) > 0 else None
         
         # Tạo các DataLoader
         train_loader = DataLoader(
@@ -221,34 +393,6 @@ class DatasetLoader:
         ) if test_dataset else None
         
         return train_loader, val_loader, test_loader
-    
-    def _create_dataset(self, df, augment=False):
-        """
-        Tạo PyTorch dataset từ DataFrame.
-        
-        Args:
-            df (pd.DataFrame): DataFrame chứa thông tin về các file âm thanh
-            augment (bool): Có áp dụng data augmentation hay không
-            
-        Returns:
-            AudioDataset: PyTorch dataset
-        """
-        if df.empty:
-            return None
-            
-        # Lấy đường dẫn file và nhãn
-        file_paths = df['file_path'].values
-        labels = self.label_encoder.transform(df['label'].values)
-        
-        # Tạo dataset
-        dataset = AudioDataset(
-            file_paths=file_paths,
-            labels=labels,
-            transform=self.extract_features,
-            augment=augment
-        )
-        
-        return dataset
     
     def _apply_augmentation(self, features):
         """
@@ -331,88 +475,12 @@ class DatasetLoader:
         
         print("\nData processing completed!")
         
-    def visualize_sample(self, split='train', label='cry', index=0):
-        """
-        Hiển thị mẫu âm thanh và đặc trưng.
-        
-        Args:
-            split (str): Split để lấy mẫu ('train', 'val', 'test')
-            label (str): Nhãn để lấy mẫu ('cry', 'not_cry')
-            index (int): Chỉ số của mẫu
-        """
-        # Tải metadata
-        df = self.load_metadata()
-        
-        # Lọc theo split và label
-        filtered_df = df[(df['split'] == split) & (df['label'] == label)]
-        
-        if index >= len(filtered_df):
-            print(f"Index {index} out of range. Only {len(filtered_df)} samples available.")
-            return
-            
-        # Lấy đường dẫn file
-        file_path = filtered_df.iloc[index]['file_path']
-        
-        # Tải âm thanh
-        y, sr = librosa.load(file_path, sr=self.sample_rate)
-        
-        # Trích xuất đặc trưng
-        features = self.extract_features(file_path)
-        
-        if features is None:
-            print(f"Failed to extract features from {file_path}")
-            return
-            
-        # Chuyển tensor PyTorch về numpy để hiển thị
-        if isinstance(features, torch.Tensor):
-            features = features.squeeze(0).numpy()  # Loại bỏ chiều kênh
-            
-        # Hiển thị dạng sóng
-        plt.figure(figsize=(10, 8))
-        
-        plt.subplot(3, 1, 1)
-        plt.plot(np.linspace(0, len(y)/sr, len(y)), y)
-        plt.title(f'Waveform - {label} ({split})')
-        plt.xlabel('Time (s)')
-        plt.ylabel('Amplitude')
-        
-        # # Hiển thị dạng sóng sau VAD
-        # y_vad, isBabyCrying, f0 = apply_vad(y, sr=self.sample_rate)
-
-        # print("f0", f0)
-
-        # if not isBabyCrying:
-        #     print("BabyCry:",isBabyCrying)
-        #     return;
-            
-        # plt.subplot(3, 1, 2)
-        # plt.plot(np.linspace(0, len(y_vad)/sr, len(y_vad)), y_vad)
-        # plt.title(f'Waveform after VAD - {label} ({split})')
-        # plt.xlabel('Time (s)')
-        # plt.ylabel('Amplitude')
-        
-        # Hiển thị MFCC
-        plt.subplot(3, 1, 3)
-        librosa.display.specshow(
-            features, 
-            sr=self.sample_rate,
-            hop_length=self.hop_length,
-            x_axis='time',
-            y_axis='mel',
-            cmap='viridis'
-        )
-        plt.colorbar(format='%+2.0f dB')
-        plt.title(f'MFCC Features - {label} ({split})')
-        
-        plt.tight_layout()
-        plt.show()
-        
     def get_class_weights(self):
         """
         Tính toán trọng số cho các lớp để xử lý dữ liệu không cân bằng.
         
         Returns:
-            torch.Tensor: Tensor chứa trọng số cho mỗi lớp
+            torch.Tensor: Tensor chứa trọng số cho lớp dương (pos_weight)
         """
         # Tải metadata
         df = self.load_metadata()
@@ -423,20 +491,16 @@ class DatasetLoader:
         # Đếm số lượng mẫu cho mỗi lớp
         class_counts = train_df['label'].value_counts().to_dict()
         
-        # Tính tổng số mẫu
-        total_samples = len(train_df)
+        # In ra thống kê
+        print("Class counts:", class_counts)
         
-        # Tính trọng số cho mỗi lớp
-        weights = []
-        for class_name in self.classes:
-            if class_name in class_counts:
-                # Công thức: total_samples / (n_classes * class_count)
-                weight = total_samples / (len(self.classes) * class_counts[class_name])
-            else:
-                weight = 1.0
-            weights.append(weight)
-                
-        return torch.tensor(weights, dtype=torch.float)
+        # Tính toán pos_weight cho BCEWithLogitsLoss: số mẫu lớp âm / số mẫu lớp dương
+        # Các lớp được tính theo thứ tự: [cry, not_cry] trong self.classes
+        # cry là lớp dương (1), not_cry là lớp âm (0)
+        pos_weight = class_counts.get('not_cry', 0) / max(class_counts.get('cry', 0), 1)
+        print(f"Using pos_weight={pos_weight} for BCEWithLogitsLoss")
+        
+        return torch.tensor([pos_weight], dtype=torch.float)
 
 
 # Ví dụ sử dụng
@@ -444,27 +508,16 @@ if __name__ == "__main__":
     # Khởi tạo DatasetLoader
     loader = DatasetLoader(data_dir='data/dataset')
     
-    # Xử lý dữ liệu thô (nếu cần)
-    # loader.process_raw_data()
+    # Chuyển đổi tất cả file âm thanh thành MFCC features
+    loader.convert_audio_to_mfcc()
     
-    # Tải metadata
-    # metadata = loader.load_metadata()
-    # print(metadata.head())
+    # Tạo dataset từ MFCC features đã được tính toán
+    train_loader, val_loader, test_loader = loader.prepare_dataset(batch_size=32)
     
-    # # Chuẩn bị dataset
-    # train_loader, val_loader, test_loader = loader.prepare_dataset(batch_size=32)
-    
-    # Hiển thị một mẫu
-    loader.visualize_sample(split='train', label='cry', index=0)
-    
-    # Lấy trọng số cho các lớp
-    class_weights = loader.get_class_weights()
-    print("Class weights:", class_weights)
-    
-    # # Kiểm tra một batch từ train_loader
-    # if train_loader:
-    #     for batch_features, batch_labels in train_loader:
-    #         print(f"Batch shape: {batch_features.shape}")
-    #         print(f"Labels shape: {batch_labels.shape}")
-    #         break
-    
+    # Kiểm tra một batch từ train_loader
+    if train_loader:
+        for batch_features, batch_labels in train_loader:
+            print(f"Batch shape: {batch_features.shape}")
+            print(f"Labels shape: {batch_labels.shape}")
+            break
+

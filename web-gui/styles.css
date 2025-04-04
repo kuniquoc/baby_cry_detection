@@ -132,34 +132,34 @@ audio {
     border-radius: 4px;
 }
 
-.vad-results {
+vad-results {
     padding: 15px;
     background-color: #f9f9f9;
     border-radius: 4px;
 }
 
-.result-item {
+result-item {
     margin-bottom: 8px;
     display: flex;
     align-items: center;
 }
 
-.result-label {
+result-label {
     font-weight: bold;
     margin-right: 10px;
     min-width: 120px;
 }
 
-.result-value {
+result-value {
     font-family: monospace;
 }
 
-.positive {
+positive {
     color: #2ecc71;
     font-weight: bold;
 }
 
-.negative {
+negative {
     color: #e74c3c;
 }
 
@@ -168,14 +168,15 @@ audio {
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .file-input {
         margin-bottom: 10px;
     }
 }
 
 .waveform {
-    height: 200px;  /* Slightly larger than canvas to accommodate labels */
+    height: 200px;
+    /* Slightly larger than canvas to accommodate labels */
     margin-bottom: 10px;
 }
 
@@ -219,4 +220,66 @@ audio {
     white-space: pre-wrap;
     font-family: monospace;
     color: #2c3e50;
+}
+
+.timeline-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+
+.timeline-visualization {
+    position: relative;
+    margin-top: 15px;
+    height: 100px;
+}
+
+.timeline-chart {
+    position: relative;
+    height: 60px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.timeline-segment {
+    position: absolute;
+    height: 100%;
+    background-color: #3498db;
+    opacity: 0.7;
+    border-radius: 2px;
+    transition: opacity 0.3s;
+    cursor: pointer;
+}
+
+.timeline-segment:hover {
+    opacity: 1;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-segment.active {
+    background-color: #2ecc71;
+    opacity: 1;
+}
+
+.timeline-axis {
+    position: relative;
+    height: 20px;
+    margin-top: 5px;
+}
+
+.timeline-tick {
+    position: absolute;
+    width: 1px;
+    height: 5px;
+    background-color: #adb5bd;
+    bottom: 15px;
+}
+
+.timeline-tick-label {
+    position: absolute;
+    font-size: 10px;
+    color: #6c757d;
+    transform: translateX(-50%);
 }

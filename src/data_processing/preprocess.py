@@ -1,9 +1,5 @@
-import os
 import numpy as np
 import librosa
-from pathlib import Path
-from tqdm import tqdm
-from collections import defaultdict
 
 def apply_vad(audio, sr=16000, frame_length=400, hop_length=160):
     """Advanced Voice Activity Detection optimized for children's crying using f0.
@@ -29,8 +25,13 @@ def apply_vad(audio, sr=16000, frame_length=400, hop_length=160):
     f0_clean = f0[~np.isnan(f0)]
     mean_f0 = float(np.mean(f0_clean)) if len(f0_clean) > 0 else 0.0
     
-    # Determine if baby crying is detected
-    isBabyCrying = np.any(valid_f0 | voiced_flag)
+    # Calculate percentage of frames with crying
+    total_frames = len(f0)
+    crying_frames = np.sum(valid_f0 | voiced_flag)
+    crying_percentage = (crying_frames / total_frames) * 100 if total_frames > 0 else 0
+    
+    # Determine if baby crying is detected (>50% of frames)
+    isBabyCrying = crying_percentage > 50
     
     return audio, isBabyCrying, mean_f0
 

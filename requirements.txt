@@ -14,13 +14,11 @@ torchaudio
 torch
 torchvision
 tensorboard>=2.13.0
+
 # Web API (Django)
-django
-djangorestframework
-django-cors-headers
-gunicorn
-flask
-flask-cors
+fastapi 
+uvicorn 
+python-multipart
 
 # Testing and development
 pytest

@@ -1,5 +1,7 @@
 
 # Data
+# Ignore all data files and directories
+data/
 data/raw/
 data/segmented/
 data/augmented/
