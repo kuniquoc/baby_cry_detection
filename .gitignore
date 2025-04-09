@@ -1,9 +1,7 @@
 
 # Data
 # Ignore all data files and directories
-data/processed/
-data/raw/
-data/segmented/
+data/
 
 # Python
 __pycache__/
