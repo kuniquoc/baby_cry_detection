@@ -54,8 +54,6 @@ venv.bak/
 *.pkl
 *.weights
 *.pt
-models/
-saved_models/
 checkpoints/
 tensorboard/
 mlruns/
