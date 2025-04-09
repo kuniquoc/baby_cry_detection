@@ -52,7 +52,6 @@ venv.bak/
 # AI/ML specific
 *.h5
 *.pkl
-*.model
 *.weights
 *.pt
 models/
