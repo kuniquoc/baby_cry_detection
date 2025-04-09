@@ -1,0 +1,285 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.6;
+    color: #333;
+    background-color: #f5f5f5;
+}
+
+.container {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+h1 {
+    color: #2c3e50;
+}
+
+h3 {
+    margin-bottom: 10px;
+    color: #2c3e50;
+}
+
+main {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.control-panel {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.file-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.file-input-hidden {
+    display: none;
+}
+
+.file-input-label {
+    background-color: #3498db;
+    color: white;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.file-input-label:hover {
+    background-color: #2980b9;
+}
+
+.file-name {
+    font-size: 14px;
+    color: #666;
+}
+
+.process-button {
+    background-color: #2ecc71;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.process-button:hover:not(:disabled) {
+    background-color: #27ae60;
+}
+
+.process-button:disabled {
+    background-color: #95a5a6;
+    cursor: not-allowed;
+}
+
+.error-message {
+    color: #e74c3c;
+    font-size: 14px;
+    margin-bottom: 10px;
+    display: none;
+}
+
+.audio-players {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.audio-player {
+    flex: 1;
+    min-width: 300px;
+}
+
+audio {
+    width: 100%;
+}
+
+.waveforms {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.waveform {
+    flex: 1;
+    min-width: 300px;
+    padding: 10px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+}
+
+vad-results {
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+}
+
+result-item {
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+}
+
+result-label {
+    font-weight: bold;
+    margin-right: 10px;
+    min-width: 120px;
+}
+
+result-value {
+    font-family: monospace;
+}
+
+positive {
+    color: #2ecc71;
+    font-weight: bold;
+}
+
+negative {
+    color: #e74c3c;
+}
+
+@media (max-width: 768px) {
+    .control-panel {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .file-input {
+        margin-bottom: 10px;
+    }
+}
+
+.waveform {
+    height: 200px;
+    /* Slightly larger than canvas to accommodate labels */
+    margin-bottom: 10px;
+}
+
+.segments-list {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+
+.segment-item {
+    margin-bottom: 15px;
+    padding: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    background-color: white;
+}
+
+.segment-info {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    color: #495057;
+}
+
+.segment-time {
+    font-weight: bold;
+}
+
+.segment-f0 {
+    color: #6c757d;
+}
+
+.segment-audio {
+    width: 100%;
+    margin-top: 5px;
+}
+
+.segments-info pre {
+    margin: 10px 0;
+    white-space: pre-wrap;
+    font-family: monospace;
+    color: #2c3e50;
+}
+
+.timeline-container {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 8px;
+}
+
+.timeline-visualization {
+    position: relative;
+    margin-top: 15px;
+    height: 100px;
+}
+
+.timeline-chart {
+    position: relative;
+    height: 60px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.timeline-segment {
+    position: absolute;
+    height: 100%;
+    background-color: #3498db;
+    opacity: 0.7;
+    border-radius: 2px;
+    transition: opacity 0.3s;
+    cursor: pointer;
+}
+
+.timeline-segment:hover {
+    opacity: 1;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-segment.active {
+    background-color: #2ecc71;
+    opacity: 1;
+}
+
+.timeline-axis {
+    position: relative;
+    height: 20px;
+    margin-top: 5px;
+}
+
+.timeline-tick {
+    position: absolute;
+    width: 1px;
+    height: 5px;
+    background-color: #adb5bd;
+    bottom: 15px;
+}
+
+.timeline-tick-label {
+    position: absolute;
+    font-size: 10px;
+    color: #6c757d;
+    transform: translateX(-50%);
+}
