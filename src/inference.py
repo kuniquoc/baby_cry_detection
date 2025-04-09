@@ -8,14 +8,13 @@ from tqdm import tqdm
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# Import from project structure
-from src.models.cnn_model import CryingCNN
-from src.utils.dataset_loader import DatasetLoader
+# Import from project structure - adjust imports to match train.py
+from models import MobileNetV2_Crying
+from utils import DatasetLoader
 from src.data_processing.preprocess import extract_mfcc
 
-
 # Define class names for predictions
-labelEncoder = DatasetLoader().label_encoder;
+labelEncoder = DatasetLoader().label_encoder
 
 def load_model(model_path):
     """
@@ -29,14 +28,13 @@ def load_model(model_path):
     """
     # Initialize DatasetLoader to get parameters
     loader = DatasetLoader()
-    n_mels = loader.n_mels
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
     # Initialize model with same parameters as during training
-    model = CryingCNN().to(device)
+    model = MobileNetV2_Crying().to(device)
     
     try:
         checkpoint = torch.load(model_path, map_location=device)
@@ -86,11 +84,10 @@ def predict(audio_path, model, device):
             hop_length=hop_length
         )
 
-        # Apply the same tensor transformation as in DatasetLoader.extract_features
+        # Apply the same tensor transformation as in DatasetLoader
         features = torch.from_numpy(mfccs).float().unsqueeze(0)  # [1, n_mels, time]
         
-        # DatasetLoader adds only one channel dimension, but the model may expect [batch, channel, n_mels, time]
-        # Check if we need to add another dimension for the channel
+        # Add channel dimension if needed
         if len(features.shape) == 3:  # If [batch, n_mels, time]
             features = features.unsqueeze(1)  # Make it [batch, channel, n_mels, time]
         
@@ -99,10 +96,10 @@ def predict(audio_path, model, device):
         # Make prediction
         with torch.no_grad():  # Disable gradient calculation for inference
             logits = model(features) 
-            probability = torch.sigmoid(logits)  # Apply sigmoid to convert logits to probability (0-1)
+            # Apply sigmoid since model outputs raw logits (to match BCEWithLogitsLoss in training)
+            probability = torch.sigmoid(logits)
             
             predicted_key = (probability > 0.5).int().item()
-            
             confidence = probability.item() if predicted_key == 1 else 1 - probability.item()
         
         return predicted_key, confidence

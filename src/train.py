@@ -6,8 +6,9 @@ from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
+from sklearn.metrics import precision_score, recall_score, f1_score
 
-from models import CryingCNN
+from models import MobileNetV2_Crying
 from utils import DatasetLoader
 
 def train_model(model, train_loader, val_loader, criterion, optimizer, 
@@ -23,6 +24,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         train_loss = 0
         train_correct = 0
         train_total = 0
+        train_preds = []
+        train_targets = []
         
         pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{num_epochs}')
         for batch_idx, (inputs, targets) in enumerate(pbar):
@@ -40,6 +43,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             train_total += targets.size(0)
             train_correct += (predicted == targets).sum().item()
             
+            # Store predictions and targets for metric calculation
+            train_preds.extend(predicted.cpu().detach().numpy())
+            train_targets.extend(targets.cpu().detach().numpy())
+            
             pbar.set_postfix({
                 'loss': train_loss/(batch_idx+1),
                 'acc': 100.*train_correct/train_total
@@ -50,6 +57,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         val_loss = 0
         val_correct = 0
         val_total = 0
+        val_preds = []
+        val_targets = []
         
         with torch.no_grad():
             for inputs, targets in val_loader:
@@ -62,6 +71,10 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                 predicted = (outputs > 0.5).float()
                 val_total += targets.size(0)
                 val_correct += (predicted == targets).sum().item()
+                
+                # Store predictions and targets for metric calculation
+                val_preds.extend(predicted.cpu().detach().numpy())
+                val_targets.extend(targets.cpu().detach().numpy())
         
         # Calculate epoch metrics
         avg_train_loss = train_loss / len(train_loader)
@@ -69,11 +82,26 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
         train_acc = 100. * train_correct / train_total
         val_acc = 100. * val_correct / val_total
         
+        # Calculate additional metrics
+        train_precision = precision_score(train_targets, train_preds, zero_division=0)
+        train_recall = recall_score(train_targets, train_preds, zero_division=0)
+        train_f1 = f1_score(train_targets, train_preds, zero_division=0)
+        
+        val_precision = precision_score(val_targets, val_preds, zero_division=0)
+        val_recall = recall_score(val_targets, val_preds, zero_division=0)
+        val_f1 = f1_score(val_targets, val_preds, zero_division=0)
+        
         # Log metrics
         writer.add_scalar('Loss/train', avg_train_loss, epoch)
         writer.add_scalar('Loss/val', avg_val_loss, epoch)
         writer.add_scalar('Accuracy/train', train_acc, epoch)
         writer.add_scalar('Accuracy/val', val_acc, epoch)
+        writer.add_scalar('Precision/train', train_precision, epoch)
+        writer.add_scalar('Precision/val', val_precision, epoch)
+        writer.add_scalar('Recall/train', train_recall, epoch)
+        writer.add_scalar('Recall/val', val_recall, epoch)
+        writer.add_scalar('F1-Score/train', train_f1, epoch)
+        writer.add_scalar('F1-Score/val', val_f1, epoch)
         
         # Prepare checkpoint data
         checkpoint = {
@@ -82,8 +110,14 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             'optimizer_state_dict': optimizer.state_dict(),
             'val_loss': avg_val_loss,
             'val_acc': val_acc,
+            'val_precision': val_precision,
+            'val_recall': val_recall,
+            'val_f1': val_f1,
             'train_loss': avg_train_loss,
             'train_acc': train_acc,
+            'train_precision': train_precision,
+            'train_recall': train_recall,
+            'train_f1': train_f1,
             'best_val_loss': best_val_loss
         }
         
@@ -98,7 +132,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             
         print(f'\nEpoch {epoch+1}/{num_epochs}:')
         print(f'Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%')
+        print(f'Train Precision: {train_precision:.4f}, Recall: {train_recall:.4f}, F1: {train_f1:.4f}')
         print(f'Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%')
+        print(f'Val Precision: {val_precision:.4f}, Recall: {val_recall:.4f}, F1: {val_f1:.4f}')
 
 def main():
     # Configuration
@@ -135,28 +171,9 @@ def main():
     pos_weight = dataset_loader.get_class_weights().to(device)
     
     # Initialize model
-    model = CryingCNN().to(device)
+    model = MobileNetV2_Crying().to(device)
     
-    # BCELoss vs BCEWithLogitsLoss:
-    #
-    # 1. BCELoss (Binary Cross Entropy Loss):
-    #    - Input: Requires model outputs with values between 0 and 1 (model must have a sigmoid activation)
-    #    - Output: Computes binary cross entropy loss between input and target
-    #    - Formula: -[y*log(x) + (1-y)*log(1-x)] where x is prediction and y is target
-    #    - Usage: model_output = sigmoid(logits) -> BCELoss(model_output, targets)
-    #
-    # 2. BCEWithLogitsLoss:
-    #    - Input: Takes raw logits from model (NO sigmoid applied in the model)
-    #    - Output: Combines sigmoid activation and binary cross entropy in one operation
-    #    - Formula: -[y*log(sigmoid(x)) + (1-y)*log(1-sigmoid(x))]
-    #    - Usage: BCEWithLogitsLoss(raw_logits, targets)
-    #    - Advantages:
-    #      a. More numerically stable (prevents underflow/overflow)
-    #      b. Supports class weighting via pos_weight parameter
-    #      c. Computationally efficient by combining sigmoid and BCE
-    #
-    # In practice: When using BCEWithLogitsLoss, the model should NOT apply sigmoid to outputs
-    
+    # When using BCEWithLogitsLoss, the model should NOT apply sigmoid to outputs
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)

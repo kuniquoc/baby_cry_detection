@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"="width=device-width, initial-scale=1.0">
+    <title>Baby Cry Detection</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+</head>
+
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">Baby Cry Detection</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+                aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/docs" target="_blank">API Docs</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        <h1 class="text-center mb-4">Baby Cry Detection System</h1>
+
+        <div class="card mb-4">
+            <div class="card-header">
+                <h2>Upload Audio File</h2>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info">
+                    <p>Upload a WAV audio file for analysis.</p>
+                    <p>The system will:</p>
+                    <ul>
+                        <li>Split the audio into 3-second segments</li>
+                        <li>Analyze each segment for baby cry sounds</li>
+                        <li>Identify consecutive segments of crying with high confidence</li>
+                        <li>Visualize the results below</li>
+                    </ul>
+                </div>
+
+                <form id="uploadForm">
+                    <div class="mb-3">
+                        <label for="audioFile" class="form-label">Audio File (WAV format)</label>
+                        <input class="form-control" type="file" id="audioFile" accept=".wav" required>
+                    </div>
+
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary" id="analyzeButton">
+                            <span id="analyzeText">Analyze Audio</span>
+                            <div class="spinner-border spinner-border-sm text-light d-none" id="analyzeSpinner"
+                                role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="resultsContainer" class="d-none">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h2>Analysis Results</h2>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info d-none" id="noCryMessage">
+                        <strong>No crying detected!</strong> The analysis did not detect any crying in this audio file.
+                    </div>
+
+                    <div class="alert alert-danger d-none" id="consecutiveCryMessage">
+                        <strong>Consecutive crying detected!</strong> Multiple consecutive segments with high-confidence
+                        crying were identified.
+                        <div id="consecutiveCryDetails" class="mt-2"></div>
+                    </div>
+
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header">Audio Information</div>
+                                <div class="card-body">
+                                    <table class="table table-sm">
+                                        <tbody>
+                                            <tr>
+                                                <th>Filename:</th>
+                                                <td id="resultFilename"></td>
+                                            </tr>
+                                            <tr>
+                                                <th>Duration:</th>
+                                                <td id="resultDuration"></td>
+                                            </tr>
+                                            <tr>
+                                                <th>Total segments:</th>
+                                                <td id="resultTotalSegments"></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card h-100">
+                                <div class="card-header">Audio Player</div>
+                                <div class="card-body text-center">
+                                    <audio id="audioPlayer" controls class="w-100">
+                                        Your browser does not support the audio element.
+                                    </audio>
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-primary" id="playAudioBtn">Play</button>
+                                        <button class="btn btn-sm btn-outline-secondary"
+                                            id="pauseAudioBtn">Pause</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <h3>Audio Waveform & Segments</h3>
+                    <div class="waveform-container mb-2">
+                        <canvas id="waveformCanvas"></canvas>
+                    </div>
+                    <div id="waveformLegend" class="mb-4"></div>
+
+                    <h3>Segments Analysis</h3>
+                    <div class="timeline-container mb-2">
+                        <canvas id="timelineCanvas"></canvas>
+                    </div>
+                    <div id="timelineLegend" class="mb-4"></div>
+
+                    <h3>Segment Details</h3>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover" id="segmentsTable">
+                            <thead>
+                                <tr>
+                                    <th>Segment</th>
+                                    <th>Time Range</th>
+                                    <th>Prediction</th>
+                                    <th>Confidence</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-light py-3 mt-auto">
+        <div class="container text-center">
+            <p class="mb-0">Baby Cry Detection API - 2025</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+</body>
+
+</html>
