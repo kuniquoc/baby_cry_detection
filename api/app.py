@@ -11,13 +11,15 @@ import torch
 import requests
 import base64
 import wave
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request
+import aiohttp
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import logging
 from typing import List, Optional, Dict, Any
+from datetime import datetime
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -218,26 +220,27 @@ async def predict_with_timestamp(payload: Dict[str, Any]):
     Predict if the audio contains baby crying and send a notification if confidence > 80%.
     
     - **payload**: JSON payload containing:
-        - **chunk_id**: Identifier for the audio chunk
         - **timestamp**: Timestamp associated with the audio
         - **sample_rate**: Sample rate of the audio
         - **channels**: Number of audio channels
         - **audio_data**: Base64-encoded WAV audio data
     
     Returns:
-    - **chunk_id**: Identifier for the audio chunk
     - **predicted_class**: The predicted class (cry or not_cry)
     - **confidence**: Confidence score (0-1)
     """
     try:
         # Extract and decode audio data from payload
-        chunk_id = payload.get("chunk_id")
         timestamp = payload.get("timestamp")
-        sample_rate = payload.get("sample_rate")
+        sample_rate = payload.get("sample_rate") 
+        if sample_rate is None: 
+            sample_rate = 16000
         channels = payload.get("channels")
+        if channels is None:
+            channels = 1
         audio_data_base64 = payload.get("audio_data")
         
-        if not all([chunk_id, timestamp, sample_rate, channels, audio_data_base64]):
+        if not all([timestamp, audio_data_base64]):
             raise HTTPException(status_code=400, detail="Missing required fields in payload")
         
         # Decode base64 audio data
@@ -254,7 +257,21 @@ async def predict_with_timestamp(payload: Dict[str, Any]):
         
         # If prediction is "cry" with confidence > 80%, send notification
         if predicted_class == "cry" and confidence > 0.8:
-            notification_payload = {"timestamp": timestamp, "probability": confidence}
+            # Save audio file
+            try:
+                save_dir = os.path.join("api", "data", "cry_detections")
+                os.makedirs(save_dir, exist_ok=True)
+                timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
+                audio_filename = f"cry_detected_{timestamp_str}.wav"
+                audio_filepath = os.path.join(save_dir, audio_filename)
+                
+                with open(audio_filepath, 'wb') as f:
+                    f.write(audio_data_bytes)
+                logger.info(f"Saved cry detection audio to: {audio_filepath}")
+            except Exception as e:
+                logger.error(f"Failed to save audio file: {str(e)}")
+
+            notification_payload = {"timestamp": timestamp, "probability": confidence, "audio_file": audio_filename}
             try:
                 response = requests.post("http://localhost:3000/api/notifications", json=notification_payload)
                 response.raise_for_status()
@@ -262,7 +279,7 @@ async def predict_with_timestamp(payload: Dict[str, Any]):
             except requests.RequestException as e:
                 logger.error(f"Failed to send notification: {str(e)}")
         
-        return {"chunk_id": chunk_id, "predicted_class": predicted_class, "confidence": confidence}
+        return {"predicted_class": predicted_class, "confidence": confidence}
     
     except Exception as e:
         logger.error(f"Error processing prediction with timestamp: {str(e)}")
@@ -400,6 +417,212 @@ def detect_consecutive_cry_segments(segments):
                 consecutive_info["end_time"] = next_seg["end_time"]
     
     return consecutive_info
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        self.active_connections[client_id] = websocket
+        logger.info(f"Client {client_id} connected")
+
+    def disconnect(self, client_id: str):
+        if client_id in self.active_connections:
+            del self.active_connections[client_id]
+        logger.info(f"Client {client_id} disconnected")
+
+    async def send_message(self, client_id: str, message: Dict[str, Any]):
+        if client_id in self.active_connections:
+            await self.active_connections[client_id].send_json(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """
+    WebSocket endpoint for real-time audio processing.
+    Expects audio chunks of exactly 3 seconds in the following format:
+    {
+        "timestamp": float,
+        "sample_rate": int,
+        "channels": int,
+        "audio_data": string (base64 encoded WAV, must be exactly 3 seconds)
+    }
+    """
+    logger.info(f"New WebSocket connection request from client {client_id}")
+    try:
+        await manager.connect(websocket, client_id)
+        
+        while True:
+            try:
+                # Receive audio data
+                data = await websocket.receive_json()
+                
+                # Extract and validate data
+                timestamp = data.get("timestamp")
+                sample_rate = data.get("sample_rate", 16000)
+                channels = data.get("channels", 1)
+                audio_data_base64 = data.get("audio_data")
+                
+                if not all([timestamp, audio_data_base64]):
+                    await manager.send_message(client_id, {
+                        "type": "error",
+                        "message": "Missing required fields in payload",
+                        "details": {
+                            "timestamp": "missing" if not timestamp else "ok",
+                            "audio_data": "missing" if not audio_data_base64 else "ok"
+                        }
+                    })
+                    continue
+                
+                try:
+                    # Decode audio data
+                    try:
+                        audio_data_bytes = base64.b64decode(audio_data_base64)
+                    except Exception as e:
+                        await manager.send_message(client_id, {
+                            "type": "error",
+                            "message": "Invalid base64 audio data",
+                            "details": str(e)
+                        })
+                        continue
+
+                    with wave.open(io.BytesIO(audio_data_bytes), 'rb') as wf:
+                        if wf.getnchannels() != channels or wf.getframerate() != sample_rate:
+                            await manager.send_message(client_id, {
+                                "type": "error",
+                                "message": "Audio metadata mismatch",
+                                "details": {
+                                    "expected_channels": channels,
+                                    "actual_channels": wf.getnchannels(),
+                                    "expected_sample_rate": sample_rate,
+                                    "actual_sample_rate": wf.getframerate()
+                                }
+                            })
+                            continue
+                            
+                        # Verify audio length (should be exactly 3 seconds)
+                        audio_length = wf.getnframes() / wf.getframerate()
+                        if not (2.9 <= audio_length <= 3.1):  # Allow small tolerance
+                            await manager.send_message(client_id, {
+                                "type": "error",
+                                "message": f"Audio length must be 3 seconds",
+                                "details": {
+                                    "expected_length": 3.0,
+                                    "actual_length": audio_length
+                                }
+                            })
+                            continue
+                            
+                        try:
+                            audio_data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+                        except Exception as e:
+                            await manager.send_message(client_id, {
+                                "type": "error",
+                                "message": "Failed to read audio frames",
+                                "details": str(e)
+                            })
+                            continue
+
+                    # Get prediction
+                    try:
+                        predicted_class, confidence = predict_on_audio(audio_data, sample_rate)
+                    except Exception as e:
+                        logger.error(f"Prediction error: {str(e)}")
+                        await manager.send_message(client_id, {
+                            "type": "error",
+                            "message": "Prediction failed",
+                            "details": str(e)
+                        })
+                        continue
+                    
+                    # Send prediction result
+                    await manager.send_message(client_id, {
+                        "type": "prediction",
+                        "timestamp": timestamp,
+                        "predicted_class": predicted_class,
+                        "confidence": confidence
+                    })
+                    
+                    # If crying detected with high confidence, save audio and send notification
+                    if predicted_class == "cry" and confidence > 0.8:
+                        # Save audio file
+                        try:
+                            save_dir = os.path.join("api", "data", "cry_detections")
+                            os.makedirs(save_dir, exist_ok=True)
+                            timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
+                            audio_filename = f"cry_detected_{timestamp_str}.wav"
+                            audio_filepath = os.path.join(save_dir, audio_filename)
+                            
+                            with open(audio_filepath, 'wb') as f:
+                                f.write(audio_data_bytes)
+                            logger.info(f"Saved cry detection audio to: {audio_filepath}")
+                        except Exception as e:
+                            logger.error(f"Failed to save audio file: {str(e)}")
+
+                        # Send alert through websocket
+                        await manager.send_message(client_id, {
+                            "type": "alert",
+                            "timestamp": timestamp,
+                            "message": "Baby crying detected!",
+                            "confidence": confidence,
+                            "audio_file": audio_filename
+                        })
+                        
+                        # Send to notification API
+                        try:
+                            notification_payload = {
+                                "timestamp": timestamp,
+                                "probability": confidence,
+                                "audio_file": audio_filename
+                            }
+                            async with aiohttp.ClientSession() as session:
+                                async with session.post(
+                                    "http://localhost:3000/api/notifications",
+                                    json=notification_payload,
+                                    timeout=5
+                                ) as response:
+                                    if response.status != 200:
+                                        logger.error(f"Notification API error: {response.status}")
+                                        
+                            logger.info(f"Notification sent successfully: {notification_payload}")
+                        except Exception as e:
+                            logger.error(f"Failed to send notification: {str(e)}")
+                
+                except Exception as e:
+                    logger.error(f"Error processing audio chunk: {str(e)}")
+                    await manager.send_message(client_id, {
+                        "type": "error",
+                        "message": "Error processing audio",
+                        "details": str(e)
+                    })
+                    
+            except WebSocketDisconnect:
+                logger.info(f"Client {client_id} disconnected")
+                break
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON received: {str(e)}")
+                await manager.send_message(client_id, {
+                    "type": "error",
+                    "message": "Invalid JSON format",
+                    "details": str(e)
+                })
+            except Exception as e:
+                logger.error(f"Error in websocket loop: {str(e)}")
+                await manager.send_message(client_id, {
+                    "type": "error",
+                    "message": "Internal server error",
+                    "details": str(e)
+                })
+                break
+                
+    except WebSocketDisconnect:
+        logger.info(f"Client {client_id} disconnected during handshake")
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {str(e)}")
+    finally:
+        manager.disconnect(client_id)  # Use ConnectionManager to handle disconnection
 
 @app.get("/health/")
 async def health_check():
