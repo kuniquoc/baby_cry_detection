@@ -3,11 +3,5 @@ uvicorn[standard]
 librosa
 torch
 numpy
-
-
-matplotlib
-
-
+firebase-admin
 requests
-
-aiohttp

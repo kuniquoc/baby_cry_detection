@@ -1,6 +1,5 @@
 import os
 import sys
-from pathlib import Path
 import uvicorn
 import tempfile
 import numpy as np
@@ -8,11 +7,9 @@ import io
 import librosa
 import soundfile as sf
 import torch
-import requests
 import base64
 import wave
-import aiohttp
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, UploadFile, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,6 +17,8 @@ from pydantic import BaseModel
 import logging
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+import time
+import threading
 
 # Add project root to Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,6 +28,7 @@ from src.models.cnn_model import MobileNetV2_Crying
 from src.utils.dataset_loader import DatasetLoader
 from src.data_processing.preprocess import extract_mfcc
 from src.data_processing.split_audio import split_audio
+from firebase_service import send_cry_notification
 
 # Configure logging
 logging.basicConfig(
@@ -36,6 +36,58 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Global variables to track cry status for each device
+# Format: {device_id: {'last_cry_time': timestamp, 'checking_no_cry': bool, 'no_cry_timer': threading.Timer}}
+cry_status_tracker = {}
+NO_CRY_CHECK_SECONDS = 10  # Time window to check for no-crying event
+
+class CryDetection:
+    def __init__(self, timestamp: float, probability: float, audio_file: Optional[str] = None):
+        self.timestamp = timestamp
+        self.probability = probability
+        self.audio_file = audio_file
+
+
+async def check_firebase_events_and_notify(timestamp, device_id, confidence=0.8, audio_filename=None):
+    """
+    Check Firebase events and create notifications based on the event history
+    
+    Parameters:
+    ----------
+    timestamp : float
+        Current timestamp in seconds
+    device_id : str
+        Device ID for Firebase
+    confidence : float
+        Confidence score for the current detection
+    audio_filename : str, optional
+        Audio file name for reference
+        
+    Returns:
+    -------
+    bool
+        True if notification was processed, False otherwise
+    """
+    try:
+        notification_data = {
+            "timestamp": timestamp,
+            "deviceId": device_id,
+            "confidence": confidence
+        }
+        
+        # Send to Firebase to process events and notifications
+        result = await send_cry_notification(notification_data)
+        if result:
+            logger.info(f"Cry event created at {timestamp} for device {device_id}")
+            return True
+        else:
+            logger.error(f"Failed to create cry event at {timestamp} for device {device_id}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error checking Firebase events: {str(e)}")
+        return False
 
 # Initialize the FastAPI app
 app = FastAPI(
@@ -183,11 +235,29 @@ async def predict(audio: UploadFile = File(...)):
     """
     Make a prediction on a 3-second audio file.
     
-    - **audio**: WAV audio file (approximately 3 seconds in length)
+    Parameters:
+    ----------
+    audio : UploadFile
+        A WAV audio file upload with the following requirements:
+        - Format: WAV
+        - Length: Approximately 3 seconds (0.5-6 seconds acceptable)
+        - Sample Rate: Any (will be resampled if needed)
+        - Channels: Any (will be converted if needed)
     
     Returns:
-    - **predicted_class**: The predicted class (cry or not_cry)
-    - **confidence**: Confidence score (0-1)
+    -------
+    PredictionResult:
+        - predicted_class: str
+            Either "cry" or "not_cry"
+        - confidence: float
+            Confidence score between 0 and 1
+            
+    Raises:
+    ------
+    HTTPException(400):
+        If file format is not WAV
+    HTTPException(500):
+        If there's an error processing the audio
     """
     if not audio.filename.lower().endswith(('.wav')):
         raise HTTPException(status_code=400, detail="Only WAV files are supported")
@@ -214,89 +284,62 @@ async def predict(audio: UploadFile = File(...)):
         logger.error(f"Error processing prediction: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
-@app.post("/predict_with_timestamp")
-async def predict_with_timestamp(payload: Dict[str, Any]):
-    """
-    Predict if the audio contains baby crying and send a notification if confidence > 80%.
-    
-    - **payload**: JSON payload containing:
-        - **timestamp**: Timestamp associated with the audio
-        - **sample_rate**: Sample rate of the audio
-        - **channels**: Number of audio channels
-        - **audio_data**: Base64-encoded WAV audio data
-    
-    Returns:
-    - **predicted_class**: The predicted class (cry or not_cry)
-    - **confidence**: Confidence score (0-1)
-    """
-    try:
-        # Extract and decode audio data from payload
-        timestamp = payload.get("timestamp")
-        sample_rate = payload.get("sample_rate") 
-        if sample_rate is None: 
-            sample_rate = 16000
-        channels = payload.get("channels")
-        if channels is None:
-            channels = 1
-        audio_data_base64 = payload.get("audio_data")
-        
-        if not all([timestamp, audio_data_base64]):
-            raise HTTPException(status_code=400, detail="Missing required fields in payload")
-        
-        # Decode base64 audio data
-        audio_data_bytes = base64.b64decode(audio_data_base64)
-        with wave.open(io.BytesIO(audio_data_bytes), 'rb') as wf:
-            if wf.getnchannels() != channels or wf.getframerate() != sample_rate:
-                raise HTTPException(status_code=400, detail="Audio metadata mismatch")
-            audio_data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
-        
-        # Get prediction
-        predicted_class, confidence = predict_on_audio(audio_data, sample_rate)
 
-        print(f"Predicted class: {predicted_class}, Confidence: {confidence:.2f}")
-        
-        # If prediction is "cry" with confidence > 80%, send notification
-        if predicted_class == "cry" and confidence > 0.8:
-            # Save audio file
-            try:
-                save_dir = os.path.join("api", "data", "cry_detections")
-                os.makedirs(save_dir, exist_ok=True)
-                timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
-                audio_filename = f"cry_detected_{timestamp_str}.wav"
-                audio_filepath = os.path.join(save_dir, audio_filename)
-                
-                with open(audio_filepath, 'wb') as f:
-                    f.write(audio_data_bytes)
-                logger.info(f"Saved cry detection audio to: {audio_filepath}")
-            except Exception as e:
-                logger.error(f"Failed to save audio file: {str(e)}")
-
-            notification_payload = {"timestamp": timestamp, "probability": confidence, "audio_file": audio_filename}
-            try:
-                response = requests.post("http://localhost:3000/api/notifications", json=notification_payload)
-                response.raise_for_status()
-                logger.info(f"Notification sent successfully: {notification_payload}")
-            except requests.RequestException as e:
-                logger.error(f"Failed to send notification: {str(e)}")
-        
-        return {"predicted_class": predicted_class, "confidence": confidence}
-    
-    except Exception as e:
-        logger.error(f"Error processing prediction with timestamp: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
 
 @app.post("/analyze/", response_model=AudioAnalysisResult)
 async def analyze_audio(audio: UploadFile = File(...)):
     """
     Analyze a longer audio file by splitting it into segments and making predictions.
     
-    - **audio**: WAV audio file (can be any length)
+    Parameters:
+    ----------
+    audio : UploadFile
+        A WAV audio file with the following requirements:
+        - Format: WAV
+        - Length: Any (will be split into 3-second segments)
+        - Sample Rate: Any (will be resampled to 16kHz)
+        - Channels: Any (will be converted if needed)
     
     Returns:
-    - **filename**: Original filename
-    - **segments**: List of analyzed segments with predictions
-    - **consecutive_cry_info**: Information about consecutive cry segments with high confidence
-    - **summary**: Summary of analysis results
+    -------
+    AudioAnalysisResult:
+        - filename: str
+            Original filename
+        - segments: List[SegmentPrediction]
+            List of analyzed segments, each containing:
+            * segment_index: int
+            * start_time: float (seconds)
+            * end_time: float (seconds)
+            * predicted_class: str ("cry" or "not_cry")
+            * confidence: float (0-1)
+        - consecutive_cry_info: ConsecutiveCryInfo
+            Information about consecutive cry segments:
+            * detected: bool
+            * segments: List[int] (segment indices)
+            * start_time: Optional[float]
+            * end_time: Optional[float]
+        - summary: Dict[str, Any]
+            Analysis summary including:
+            * total_segments: int
+            * cry_segments: int
+            * not_cry_segments: int
+            * cry_percentage: float
+            * audio_length: float
+            * has_consecutive_cry: bool
+            
+    Notes:
+    -----
+    - Audio is split into 3-second segments with 1-second overlap
+    - Consecutive cry detection requires adjacent segments with:
+        * Both predicted as "cry"
+        * Both confidence scores > 0.8
+            
+    Raises:
+    ------
+    HTTPException(400):
+        If file format is not WAV
+    HTTPException(500):
+        If there's an error analyzing the audio
     """
     if not audio.filename.lower().endswith(('.wav')):
         raise HTTPException(status_code=400, detail="Only WAV files are supported")
@@ -441,16 +484,80 @@ manager = ConnectionManager()
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
     """
-    WebSocket endpoint for real-time audio processing.
-    Expects audio chunks of exactly 3 seconds in the following format:
+    WebSocket endpoint for real-time audio processing with cry detection.
+    
+    Parameters:
+    ----------
+    websocket : WebSocket
+        The WebSocket connection object
+    client_id : str
+        Unique identifier for the client connection, also used as deviceId for Firebase
+        
+    Expected Message Format:
+    ---------------------
+    JSON object containing:
     {
-        "timestamp": float,
-        "sample_rate": int,
-        "channels": int,
-        "audio_data": string (base64 encoded WAV, must be exactly 3 seconds)
+        "timestamp": float (required)
+            Unix timestamp in seconds
+        "sample_rate": int (optional, default=16000)
+            Audio sample rate in Hz
+        "channels": int (optional, default=1)
+            Number of audio channels
+        "audio_data": str (required)
+            Base64-encoded WAV audio data
     }
+    
+    Sent Message Types:
+    -----------------
+    1. Prediction Result:
+    {
+        "type": "prediction",
+        "timestamp": float,
+        "predicted_class": str,
+        "confidence": float
+    }
+    
+    2. Alert (on cry detection):
+    {
+        "type": "alert",
+        "timestamp": float,
+        "message": str,
+        "confidence": float,
+        "deviceId": str
+    }
+    
+    3. Error:
+    {
+        "type": "error",
+        "message": str,
+        "details": str (optional)
+    }
+    
+    Notes:
+    -----
+    - Connection remains open for continuous real-time processing
+    - Audio chunks should be ~3 seconds in length
+    - Cry detection triggers when confidence > 0.8
+    - Firebase events and notifications are processed according to the history
+    - No-cry event is triggered if no crying is detected for 10 seconds after a cry
+    
+    Error Handling:
+    -------------
+    - Missing fields: Sends error message, continues processing
+    - Audio metadata mismatch: Sends error message, continues processing
+    - Processing errors: Sends error message, continues processing
+    - Connection errors: Logs error, closes connection
     """
     logger.info(f"New WebSocket connection request from client {client_id}")
+    
+    # Initialize or reset cry status tracking for this device
+    global cry_status_tracker
+    cry_status_tracker[client_id] = {
+        'last_cry_time': None,  # Will be set when a cry is detected
+        'checking_no_cry': False,  # True when we're checking for 10s of no crying
+        'no_cry_timer': None  # Timer thread object
+    }
+    
     try:
         await manager.connect(websocket, client_id)
         
@@ -465,77 +572,30 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                 channels = data.get("channels", 1)
                 audio_data_base64 = data.get("audio_data")
                 
+                # Use client_id from URL as deviceId for Firebase
+                device_id = client_id
+                
                 if not all([timestamp, audio_data_base64]):
                     await manager.send_message(client_id, {
                         "type": "error",
-                        "message": "Missing required fields in payload",
-                        "details": {
-                            "timestamp": "missing" if not timestamp else "ok",
-                            "audio_data": "missing" if not audio_data_base64 else "ok"
-                        }
+                        "message": "Missing required fields in payload"
                     })
                     continue
                 
                 try:
                     # Decode audio data
-                    try:
-                        audio_data_bytes = base64.b64decode(audio_data_base64)
-                    except Exception as e:
-                        await manager.send_message(client_id, {
-                            "type": "error",
-                            "message": "Invalid base64 audio data",
-                            "details": str(e)
-                        })
-                        continue
-
+                    audio_data_bytes = base64.b64decode(audio_data_base64)
                     with wave.open(io.BytesIO(audio_data_bytes), 'rb') as wf:
                         if wf.getnchannels() != channels or wf.getframerate() != sample_rate:
                             await manager.send_message(client_id, {
                                 "type": "error",
-                                "message": "Audio metadata mismatch",
-                                "details": {
-                                    "expected_channels": channels,
-                                    "actual_channels": wf.getnchannels(),
-                                    "expected_sample_rate": sample_rate,
-                                    "actual_sample_rate": wf.getframerate()
-                                }
+                                "message": "Audio metadata mismatch"
                             })
                             continue
-                            
-                        # Verify audio length (should be exactly 3 seconds)
-                        audio_length = wf.getnframes() / wf.getframerate()
-                        if not (2.9 <= audio_length <= 3.1):  # Allow small tolerance
-                            await manager.send_message(client_id, {
-                                "type": "error",
-                                "message": f"Audio length must be 3 seconds",
-                                "details": {
-                                    "expected_length": 3.0,
-                                    "actual_length": audio_length
-                                }
-                            })
-                            continue
-                            
-                        try:
-                            audio_data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
-                        except Exception as e:
-                            await manager.send_message(client_id, {
-                                "type": "error",
-                                "message": "Failed to read audio frames",
-                                "details": str(e)
-                            })
-                            continue
+                        audio_data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
 
                     # Get prediction
-                    try:
-                        predicted_class, confidence = predict_on_audio(audio_data, sample_rate)
-                    except Exception as e:
-                        logger.error(f"Prediction error: {str(e)}")
-                        await manager.send_message(client_id, {
-                            "type": "error",
-                            "message": "Prediction failed",
-                            "details": str(e)
-                        })
-                        continue
+                    predicted_class, confidence = predict_on_audio(audio_data, sample_rate)
                     
                     # Send prediction result
                     await manager.send_message(client_id, {
@@ -545,51 +605,52 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
                         "confidence": confidence
                     })
                     
-                    # If crying detected with high confidence, save audio and send notification
+                    # If crying detected with high confidence > 80%, process it
                     if predicted_class == "cry" and confidence > 0.8:
-                        # Save audio file
-                        try:
-                            save_dir = os.path.join("api", "data", "cry_detections")
-                            os.makedirs(save_dir, exist_ok=True)
-                            timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
-                            audio_filename = f"cry_detected_{timestamp_str}.wav"
-                            audio_filepath = os.path.join(save_dir, audio_filename)
-                            
-                            with open(audio_filepath, 'wb') as f:
-                                f.write(audio_data_bytes)
-                            logger.info(f"Saved cry detection audio to: {audio_filepath}")
-                        except Exception as e:
-                            logger.error(f"Failed to save audio file: {str(e)}")
-
-                        # Send alert through websocket
-                        await manager.send_message(client_id, {
-                            "type": "alert",
-                            "timestamp": timestamp,
-                            "message": "Baby crying detected!",
-                            "confidence": confidence,
-                            "audio_file": audio_filename
-                        })
+                        # Update cry status tracking
+                        device_status = cry_status_tracker[client_id]
+                        device_status['last_cry_time'] = timestamp
                         
-                        # Send to notification API
-                        try:
-                            notification_payload = {
+                        # Cancel any existing no-cry timer
+                        if device_status['checking_no_cry'] and device_status['no_cry_timer'] is not None:
+                            if device_status['no_cry_timer'].is_alive():
+                                device_status['no_cry_timer'].cancel()
+                            device_status['checking_no_cry'] = False
+                            device_status['no_cry_timer'] = None
+                            logger.info(f"Cancelled no-cry timer for device {client_id} - new crying detected")
+
+                        # Check Firebase events and send notification if needed
+                        notification_sent = await check_firebase_events_and_notify(
+                            timestamp=timestamp,
+                            device_id=device_id,
+                            confidence=confidence
+                        )
+                        
+                        if notification_sent:
+                            # Send alert through websocket
+                            await manager.send_message(client_id, {
+                                "type": "alert",
                                 "timestamp": timestamp,
-                                "probability": confidence,
-                                "audio_file": audio_filename
-                            }
-                            async with aiohttp.ClientSession() as session:
-                                async with session.post(
-                                    "http://localhost:3000/api/notifications",
-                                    json=notification_payload,
-                                    timeout=5
-                                ) as response:
-                                    if response.status != 200:
-                                        logger.error(f"Notification API error: {response.status}")
-                                        
-                            logger.info(f"Notification sent successfully: {notification_payload}")
-                        except Exception as e:
-                            logger.error(f"Failed to send notification: {str(e)}")
-                
+                                "message": "Crying detected!",
+                                "confidence": confidence,
+                                "deviceId": device_id
+                            })
+                            logger.info(f"Cry event created at timestamp {timestamp} for device {device_id}")
+                            
+                        # Start no-cry timer if not already checking
+                        if device_status['last_cry_time'] is not None and not device_status['checking_no_cry']:
+                            device_status['checking_no_cry'] = True
+                            # Schedule the no-cry check after 10 seconds
+                            no_cry_timer = threading.Timer(
+                                NO_CRY_CHECK_SECONDS, 
+                                await check_for_no_cry, 
+                                args=[client_id, timestamp]
+                            )
+                            no_cry_timer.daemon = True
+                            no_cry_timer.start()
+                            device_status['no_cry_timer'] = no_cry_timer
+                            logger.info(f"Started no-cry timer for device {client_id}")
+                    
                 except Exception as e:
                     logger.error(f"Error processing audio chunk: {str(e)}")
                     await manager.send_message(client_id, {
@@ -601,13 +662,6 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
             except WebSocketDisconnect:
                 logger.info(f"Client {client_id} disconnected")
                 break
-            except json.JSONDecodeError as e:
-                logger.error(f"Invalid JSON received: {str(e)}")
-                await manager.send_message(client_id, {
-                    "type": "error",
-                    "message": "Invalid JSON format",
-                    "details": str(e)
-                })
             except Exception as e:
                 logger.error(f"Error in websocket loop: {str(e)}")
                 await manager.send_message(client_id, {
@@ -622,7 +676,63 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except Exception as e:
         logger.error(f"WebSocket connection error: {str(e)}")
     finally:
-        manager.disconnect(client_id)  # Use ConnectionManager to handle disconnection
+        # Cleanup cry status tracking
+        if client_id in cry_status_tracker:
+            if cry_status_tracker[client_id]['no_cry_timer'] is not None:
+                try:
+                    cry_status_tracker[client_id]['no_cry_timer'].cancel()
+                except:
+                    pass
+            del cry_status_tracker[client_id]
+        manager.disconnect(client_id)
+
+async def check_for_no_cry(client_id, last_cry_timestamp):
+    """
+    Function that runs after 10 seconds to check if crying has stopped
+    
+    Parameters:
+    ----------
+    client_id : str
+        Device ID to check
+    last_cry_timestamp : float
+        Timestamp when the last cry was detected
+    """
+    try:
+        global cry_status_tracker
+        
+        # If device is no longer connected, do nothing
+        if client_id not in cry_status_tracker:
+            logger.warning(f"Device {client_id} not in tracker when checking for no-cry")
+            return
+            
+        device_status = cry_status_tracker[client_id]
+        
+        # If this is an outdated timer (a newer cry was detected), do nothing
+        if device_status['last_cry_time'] != last_cry_timestamp:
+            logger.info(f"No-cry check skipped for device {client_id} - newer cry detected")
+            return
+            
+        # If we get here, 10 seconds have passed with no new cry detection
+        current_time = time.time()
+        
+        # Send no-cry notification to Firebase
+        from api.firebase_service import send_nocry_notification
+        notification_sent = await send_nocry_notification({
+            'timestamp': current_time,
+            'deviceId': client_id,
+            'lastCryTimestamp': last_cry_timestamp
+        })
+        
+        if notification_sent:
+            logger.info(f"No-cry event detected at {current_time} for device {client_id}. "
+                      f"Last cry was at {last_cry_timestamp}, {current_time - last_cry_timestamp:.2f}s ago")
+        
+        # Reset the checking flag
+        device_status['checking_no_cry'] = False
+        device_status['no_cry_timer'] = None
+        
+    except Exception as e:
+        logger.error(f"Error in check_for_no_cry: {str(e)}")
 
 @app.get("/health/")
 async def health_check():

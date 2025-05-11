@@ -1,5 +1,8 @@
 deployment/
 
+
+api/firebase-credentials.json
+
 # Data
 # Ignore all data files and directories
 data/
