@@ -1,6 +1,7 @@
 from firebase_admin import messaging
 import logging
 import time
+from typing import Dict, List, Tuple, Optional, Any
 
 # Configure logging
 logging.basicConfig(
@@ -9,8 +10,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Constants
+ANDROID_NOTIFICATION_CHANNEL = 'default'
+ANDROID_NOTIFICATION_SOUND = 'notification.mp3'
+ANDROID_PRIORITY = 'high'
+
 # Notification templates
-notification_templates = {
+NOTIFICATION_TEMPLATES = {
     'crying': {
         'en': {
             'title': '[{device_name}] Crying alert',
@@ -23,39 +29,22 @@ notification_templates = {
     }
 }
 
-def send_fcm_notification(token, title, body, data=None):
-    """
-    Send a push notification using Firebase Cloud Messaging
-    
-    Parameters:
-    ----------
-    token : str
-        The FCM registration token for the target device
-    title : str
-        The notification title
-    body : str
-        The notification body message
-    data : dict, optional
-        Additional data to send with the notification
-        
-    Returns:
-    -------
-    bool
-        True if the message was sent successfully, False otherwise
-    """
+DEFAULT_MESSAGES = {
+    'en': 'Baby is crying',
+    'vi': 'Bé đang khóc'
+}
+
+def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None) -> bool:
+    """Send a push notification using Firebase Cloud Messaging"""
     try:
-        # Create message
         message = messaging.Message(
-            notification=messaging.Notification(
-                title=title,
-                body=body,
-            ),
+            notification=messaging.Notification(title=title, body=body),
             android=messaging.AndroidConfig(
-                priority='high',
+                priority=ANDROID_PRIORITY,
                 notification=messaging.AndroidNotification(
-                    priority='high',
-                    sound='notification.mp3',
-                    channel_id='default',
+                    priority=ANDROID_PRIORITY,
+                    sound=ANDROID_NOTIFICATION_SOUND,
+                    channel_id=ANDROID_NOTIFICATION_CHANNEL,
                     default_sound=False,
                 ),
                 direct_boot_ok=True,
@@ -64,7 +53,6 @@ def send_fcm_notification(token, title, body, data=None):
             token=token,
         )
             
-        # Send message
         response = messaging.send(message)
         logger.info(f"Successfully sent FCM notification: {response}")
         return True
@@ -73,28 +61,12 @@ def send_fcm_notification(token, title, body, data=None):
         logger.error(f"Error sending FCM notification: {str(e)}")
         return False
 
-async def send_crying_notification_fcm(deviceId, tokens_with_info, duration=None):
-    """
-    Send a crying detection notification via FCM
-    
-    Parameters:
-    ----------
-    device_id : str
-        The device ID to send notification for
-    duration : float, optional
-        The duration of crying in seconds
-        
-    Returns:
-    -------
-    bool
-        True if all notifications were sent successfully, False otherwise
-    """
+async def send_crying_notification_fcm(deviceId: str, tokens_with_info: List[Tuple[str, str, str]], duration: Optional[float] = None) -> bool:
+    """Send a crying detection notification via FCM"""
     try:
-            
         current_time = int(time.time())
         duration_str = str(int(duration)) if duration else ""
         
-        # Prepare data payload according to schema
         data = {
             "type": "Crying",
             "time": str(current_time),
@@ -103,17 +75,12 @@ async def send_crying_notification_fcm(deviceId, tokens_with_info, duration=None
         }
         
         success = True
-        # Send to each token with appropriate language
         for token, language, device_name in tokens_with_info:
-            # Get notification template for language (default to English)
-            template = notification_templates['crying'].get(language, notification_templates['crying']['en'])
+            template = NOTIFICATION_TEMPLATES['crying'].get(language, NOTIFICATION_TEMPLATES['crying']['en'])
             
-            # Format notification
             title = template['title'].format(device_name=device_name)
-            body = template['body'].format(duration=duration_str) if duration else \
-                   "Baby is crying" if language == 'en' else "Bé đang khóc"
+            body = template['body'].format(duration=duration_str) if duration else DEFAULT_MESSAGES.get(language, DEFAULT_MESSAGES['en'])
             
-            # Send notification
             if not send_fcm_notification(token, title, body, data):
                 success = False
                 
