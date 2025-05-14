@@ -2,9 +2,13 @@ import logging
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
 
-from ..models.model_manager import ModelManager
-from ..utils.error_handling import ModelPredictionError, AudioProcessingError
-from ..utils.audio_utils import validate_audio_length
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from models.model_manager import ModelManager
+from utils.error_handling import ModelPredictionError, AudioProcessingError
+from utils.audio_utils import validate_audio_length
 
 logger = logging.getLogger(__name__)
 

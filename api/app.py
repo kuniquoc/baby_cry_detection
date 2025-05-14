@@ -4,9 +4,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import logging
-import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Configure logging
 logging.basicConfig(
@@ -15,17 +16,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import from modular structure using absolute imports
-from api.models.schemas import PredictionResult, AudioAnalysisResult, WebSocketMessage
-from api.models.model_manager import ModelManager
-from api.websocket.connection_manager import ConnectionManager
-from api.services.cry_detection_service import CryDetectionService
-from api.core.detection_core import CryDetectionCore
-from api.utils.audio_utils import load_audio_file, decode_base64_audio, save_audio_segment
-from api.utils.error_handling import (
+from models.schemas import PredictionResult, AudioAnalysisResult, WebSocketMessage
+from models.model_manager import ModelManager
+from websocket.connection_manager import ConnectionManager
+from services.cry_detection_service import CryDetectionService
+from core.detection_core import CryDetectionCore
+from utils.audio_utils import load_audio_file, decode_base64_audio, save_audio_segment
+from utils.error_handling import (
     AudioProcessingError, 
     AudioFormatError,
-    ModelPredictionError,
     handle_audio_error,
     format_error_response
 )
@@ -38,8 +37,8 @@ app = FastAPI(
 )
 
 # Set up templates and static files
-templates = Jinja2Templates(directory="api/templates")
-app.mount("/static", StaticFiles(directory="api/static"), name="static")
+templates = Jinja2Templates(directory="templates")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Initialize services and managers
 model_manager = ModelManager()

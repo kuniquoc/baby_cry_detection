@@ -4,8 +4,12 @@ import asyncio
 import threading
 import time
 
-from ..websocket.connection_manager import ConnectionManager
-from ..firebase_service import send_cry_notification, send_nocry_notification
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from websocket.connection_manager import ConnectionManager
+from firebase_service import send_cry_notification, send_nocry_notification
 
 logger = logging.getLogger(__name__)
 

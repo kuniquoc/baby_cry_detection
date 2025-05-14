@@ -1,0 +1,100 @@
+name: Deploy Baby Cry Detection API
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "api/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+env:
+  DOCKER_IMAGE: kuniquoc/baby-cry-detection-api
+  DOCKER_TAG: ${{ github.sha }}
+  APP_DIR: /opt/baby-cry-detection
+  CONTAINER_NAME: baby-cry-api
+
+jobs:
+  deploy:
+    name: Build and Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG }}
+
+      - name: Deploy to production
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.PROD_DEPLOY_HOST }}
+          username: ${{ secrets.PROD_DEPLOY_USERNAME }}
+          key: ${{ secrets.PROD_DEPLOY_KEY }}
+          envs: DOCKER_IMAGE,DOCKER_TAG,APP_DIR,CONTAINER_NAME
+          script: |
+            # Create application directories
+            echo "Creating application directories..."
+            sudo mkdir -p ${APP_DIR}/{models,logs,tmp}
+
+            # Set correct permissions
+            echo "Setting correct permissions..."
+            sudo chown -R $(whoami):$(whoami) ${APP_DIR}
+            sudo chmod -R 755 ${APP_DIR}
+
+            # Create .env file if it doesn't exist
+            if [ ! -f ${APP_DIR}/.env ]; then
+              echo "Creating default .env file..."
+              cat << EOF > ${APP_DIR}/.env
+              ENVIRONMENT=production
+              PORT=8000
+              EOF
+            fi
+
+            echo "Pulling new Docker image..."
+            docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}
+
+            echo "Stopping and removing existing container if it exists..."
+            docker stop ${CONTAINER_NAME} || true
+            docker rm ${CONTAINER_NAME} || true
+
+            echo "Starting new container..."
+            docker run -d \
+              --name ${CONTAINER_NAME} \
+              --restart unless-stopped \
+              -p 8000:8000 \
+              --env-file ${APP_DIR}/.env \
+              -v ${APP_DIR}/models:/app/models \
+              -v ${APP_DIR}/logs:/app/logs \
+              -v ${APP_DIR}/tmp:/app/tmp \
+              ${DOCKER_IMAGE}:${DOCKER_TAG}
+
+            echo "Waiting for container to be healthy..."
+            for i in {1..30}; do
+              if curl -f http://localhost:8000/health; then
+                echo "Container is healthy!"
+                exit 0
+              fi
+              echo "Waiting for container to become healthy... ($i/30)"
+              sleep 2
+            done
+
+            echo "Container health check failed. Checking logs..."
+            docker logs ${CONTAINER_NAME}
+            exit 1

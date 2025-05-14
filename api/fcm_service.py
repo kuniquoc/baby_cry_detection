@@ -11,8 +11,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-ANDROID_NOTIFICATION_CHANNEL = 'default'
-ANDROID_NOTIFICATION_SOUND = 'notification.mp3'
+ANDROID_NOTIFICATION_CHANNEL = 'babycare-alerts'
 ANDROID_PRIORITY = 'high'
 
 # Notification templates
@@ -43,11 +42,8 @@ def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict
                 priority=ANDROID_PRIORITY,
                 notification=messaging.AndroidNotification(
                     priority=ANDROID_PRIORITY,
-                    sound=ANDROID_NOTIFICATION_SOUND,
                     channel_id=ANDROID_NOTIFICATION_CHANNEL,
-                    default_sound=False,
                 ),
-                direct_boot_ok=True,
             ),
             data=data or {},
             token=token,

@@ -1,15 +1,15 @@
-import os
-import sys
 import torch
 import logging
 import librosa
 from typing import Tuple
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.models.cnn_model import MobileNetV2_Crying
-from src.utils.dataset_loader import DatasetLoader
-from src.data_processing.preprocess import extract_mfcc
+from src.cnn_model import MobileNetV2_Crying
+from src.dataset_loader import DatasetLoader
+from src.preprocess import extract_mfcc
 
 logger = logging.getLogger(__name__)
 

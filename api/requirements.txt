@@ -1,7 +1,29 @@
+# Web Framework and Server
 fastapi
 uvicorn[standard]
+jinja2
+
+# Machine Learning & Audio Processing
+pandas
 librosa
 torch
 numpy
+soundfile
+tqdm
+scikit-learn
+torch
+torchvision
+
+# Firebase Integration
 firebase-admin
+
+# API & Web Communication
 requests
+python-multipart
+websockets
+
+# Environment & Configuration
+python-dotenv
+
+
+
