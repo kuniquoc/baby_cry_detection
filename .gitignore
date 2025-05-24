@@ -50,25 +50,7 @@ venv.bak/
 *.swo
 .DS_Store
 
-# AI/ML specific
-*.h5
-*.pkl
-*.weights
-*.pt
-checkpoints/
-tensorboard/
-mlruns/
-wandb/
 
-# Jupyter Notebook
-.ipynb_checkpoints
-*.ipynb
-
-# Testing
-.coverage
-htmlcov/
-.tox/
-.pytest_cache/
 
 # Distribution / packaging
 .Python
