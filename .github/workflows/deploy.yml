@@ -18,10 +18,6 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Create firebase credentials file
-        run: |
-          echo "${{ secrets.FIREBASE_CREDENTIALS }}" | base64 -d > api/firebase-credentials.json
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -64,7 +60,7 @@ jobs:
               ports:
                 - "8000:8000"
               volumes:
-                - ./firebase-credentials.json:/app/firebase-credentials.json
+                - ./firebase-credentials.json:/app/firebase-credentials.json:ro
               restart: always
           EOF
 
@@ -74,9 +70,19 @@ jobs:
           host: ${{ secrets.VPS_IP }}
           username: ${{ secrets.VPS_USERNAME }}
           password: ${{ secrets.VPS_PASSWORD }}
-          source: "docker-compose.yml,.env.docker-compose,api/firebase-credentials.json"
+          source: "docker-compose.yml,.env.docker-compose"
           target: "~/baby_cry_detection"
           strip_components: 0
+
+      - name: Create Firebase credentials on VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USERNAME }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script: |
+            cd ~/baby_cry_detection
+            echo "${{ secrets.FIREBASE_CREDENTIALS }}" | base64 -d > firebase-credentials.json
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master
