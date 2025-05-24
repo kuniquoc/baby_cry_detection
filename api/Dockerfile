@@ -98,13 +98,8 @@ COPY --from=builder /usr/local/include/python3.13 /usr/local/include/python3.13
 # Copy virtual environment and necessary files from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Create necessary directories in final stage
-USER root
-RUN mkdir -p /app/static /app/templates /app/data && \
-    chown -R nonroot:nonroot /app
-USER nonroot
-
-# Copy application code and static files
+# Copy application code and static files with proper permissions
+COPY --from=builder --chown=nonroot:nonroot /app /app
 COPY --from=builder --chown=nonroot:nonroot /app/core ./core
 COPY --from=builder --chown=nonroot:nonroot /app/models ./models
 COPY --from=builder --chown=nonroot:nonroot /app/services ./services
