@@ -57,6 +57,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir wheel \
     && pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
+# Create nonroot user and group
+RUN addgroup --system --gid 65532 nonroot && \
+    adduser --system --uid 65532 --ingroup nonroot nonroot
+
 # Create necessary directories and set permissions
 RUN mkdir -p /app/static /app/templates /app/data && \
     chown -R nonroot:nonroot /app
