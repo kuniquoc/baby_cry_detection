@@ -20,7 +20,7 @@ jobs:
 
       - name: Create firebase credentials file
         run: |
-          echo "${{ secrets.FIREBASE_CREDENTIALS }}" > api/firebase-credentials.json
+          echo "${{ secrets.FIREBASE_CREDENTIALS }}" | base64 -d > api/firebase-credentials.json
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
