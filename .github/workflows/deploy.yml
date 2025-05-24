@@ -60,9 +60,9 @@ jobs:
           version: '3.8'
           services:
             api:
-              image: \${DOCKER_USERNAME}/baby_cry_detection:latest
+              image: ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
               ports:
-                - "\${PORT}:8000"
+                - "8000:8000"
               volumes:
                 - ./firebase-credentials.json:/app/firebase-credentials.json
               restart: always
