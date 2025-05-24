@@ -1,0 +1,135 @@
+body {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.waveform-container {
+    width: 100%;
+    height: 200px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    position: relative;
+}
+
+.timeline-container {
+    width: 100%;
+    height: 100px;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    position: relative;
+}
+
+.segment-marker {
+    position: absolute;
+    height: 80%;
+    top: 10%;
+    border-left: 2px solid #007bff;
+    z-index: 5;
+}
+
+.segment-cry {
+    background-color: rgba(220, 53, 69, 0.2);
+    position: absolute;
+    height: 100%;
+    z-index: 4;
+}
+
+.segment-not-cry {
+    background-color: rgba(25, 135, 84, 0.2);
+    position: absolute;
+    height: 100%;
+    z-index: 4;
+}
+
+/* Legend styling */
+.visualization-legend {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 10px 0;
+    padding: 5px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    margin: 0 10px;
+}
+
+.legend-color {
+    width: 20px;
+    height: 20px;
+    margin-right: 5px;
+    border: 1px solid #dee2e6;
+}
+
+.legend-cry {
+    background-color: rgba(220, 53, 69, 0.7);
+}
+
+.legend-not-cry {
+    background-color: rgba(25, 135, 84, 0.7);
+}
+
+table.table th {
+    white-space: nowrap;
+}
+
+.confidence-high {
+    color: #198754;
+    font-weight: bold;
+}
+
+.confidence-medium {
+    color: #fd7e14;
+    font-weight: bold;
+}
+
+.confidence-low {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.prediction-cry {
+    background-color: rgba(220, 53, 69, 0.1);
+}
+
+.prediction-not-cry {
+    background-color: rgba(25, 135, 84, 0.1);
+}
+
+canvas {
+    max-width: 100%;
+}
+
+footer {
+    margin-top: auto;
+}
+
+.audio-player-container {
+    margin-top: 10px;
+    margin-bottom: 20px;
+}
+
+.audio-player {
+    width: 100%;
+}
+
+/* Segment statistics table styling */
+#segmentStatsTable {
+    margin-bottom: 0;
+}
+
+#segmentStatsTable th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+#segmentRatio {
+    font-weight: bold;
+}
