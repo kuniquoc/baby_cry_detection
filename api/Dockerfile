@@ -70,6 +70,7 @@ COPY core/ ./core/
 COPY models/ ./models/
 COPY services/ ./services/
 COPY src/ ./src/
+COPY runs/ ./runs/
 COPY utils/ ./utils/
 COPY websocket/ ./websocket/
 COPY static/ ./static/

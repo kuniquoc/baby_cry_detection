@@ -14,7 +14,7 @@ from src.preprocess import extract_mfcc
 logger = logging.getLogger(__name__)
 
 class ModelManager:
-    def __init__(self, model_path: str = "D:/Git/baby_cry_detection/api/runs/20250515_003039/checkpoints/best_model_acc.pth"):
+    def __init__(self, model_path: str = "runs/20250515_003039/checkpoints/best_model_acc.pth"):
         self.model = None
         self.device = None
         self.label_encoder = None
