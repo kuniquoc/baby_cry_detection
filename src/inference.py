@@ -225,8 +225,8 @@ def structured_batch_predict(test_dir, model, device):
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Baby Cry Detection Inference')
-    parser.add_argument('--model', type=str, default='runs/latest/checkpoints/best_model.pth',
-                        help='Path to model checkpoint (default: runs/latest/checkpoints/best_model.pth)')
+    parser.add_argument('--model', type=str, default='runs/latest/checkpoints/last_model.pth',
+                        help='Path to model checkpoint (default: runs/latest/checkpoints/last_model.pth)')
     parser.add_argument('--audio', type=str, default=None,
                         help='Path to audio file for single prediction')
     parser.add_argument('--dir', type=str, default=None,
@@ -243,23 +243,22 @@ def main():
     # Show example usage if requested
     if args.example:
         print("\nExample usage for testing a single audio file:")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --audio path/to/audio_file.wav")
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --audio path/to/audio_file.wav")
         print("\nExample usage for batch processing:")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --dir path/to/audio_folder")
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --dir path/to/audio_folder")
         print("\nExample usage for structured directory with cry/not_cry subdirectories:")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --dir path/to/test_directory --structured")
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --dir path/to/test_directory --structured")
         
         print("\n--- Các ví dụ sử dụng ---")
         print("\nKiểm tra một file âm thanh:")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --audio data/samples/baby_cry_sample.wav")
-        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250330_203609\checkpoints\best_model.pth --audio D:\Git\baby_cry_detection\data\dataset\test\cry\0c8f14a9-6999-485b-97a2-913c1cbf099c-1430760379259-1.7-m-26-hu_part1.wav
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --audio data/samples/baby_cry_sample.wav")
+        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250406_182137\checkpoints\last_model.pth--audio D:\Git\baby_cry_detection\data\dataset\test\cry\0c8f14a9-6999-485b-97a2-913c1cbf099c-1430760379259-1.7-m-26-hu_part1.wav
         print("\nKiểm tra nhiều file âm thanh trong một thư mục:")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --dir data/samples")
-        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250330_203609\checkpoints\best_model.pth  --dir D:\Git\baby_cry_detection\data\dataset\test\cry
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --dir data/samples")
+        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250406_182137\checkpoints\last_model.pth  --dir D:\Git\baby_cry_detection\data\dataset\test\cry
         print("\nKiểm tra thư mục có cấu trúc chứa nhãn (cry/not_cry):")
-        print("python src/inference.py --model runs/latest/checkpoints/best_model.pth --dir data/test_dataset --structured --output ketqua.csv")
-        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250330_203609\checkpoints\best_model.pth  --dir D:\Git\baby_cry_detection\data\dataset\test --structured --output D:\Git\baby_cry_detection\results\test_predictions.csv
-
+        print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --dir data/test_dataset --structured --output ketqua.csv")
+        #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250406_182137\checkpoints\last_model.pth  --dir D:\Git\baby_cry_detection\data\dataset\test --structured --output D:\Git\baby_cry_detection\results\test_predictions.csv
         return
     
     # Validate arguments
