@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 as builder
+FROM ubuntu:22.04
 
 # Set build-time variables
 ARG DEBIAN_FRONTEND=noninteractive
@@ -12,7 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:$PATH" \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    PORT=8000
 
 WORKDIR /app
 
@@ -54,8 +55,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy requirements first
 COPY requirements.txt .
-RUN pip install --no-cache-dir wheel \
-    && pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Create nonroot user and group
 RUN addgroup --system --gid 65532 nonroot && \
@@ -65,93 +65,23 @@ RUN addgroup --system --gid 65532 nonroot && \
 RUN mkdir -p /app/static /app/templates /app/data && \
     chown -R nonroot:nonroot /app
 
-# Copy source code for potential build dependencies
-COPY --chown=nonroot:nonroot core/ ./core/
-COPY --chown=nonroot:nonroot models/ ./models/
-COPY --chown=nonroot:nonroot services/ ./services/
-COPY --chown=nonroot:nonroot utils/ ./utils/
-COPY --chown=nonroot:nonroot websocket/ ./websocket/
-COPY --chown=nonroot:nonroot static/ ./static/
-COPY --chown=nonroot:nonroot templates/ ./templates/
-COPY --chown=nonroot:nonroot app.py .
-COPY --chown=nonroot:nonroot fcm_service.py .
-COPY --chown=nonroot:nonroot firebase_service.py .
-
-# Final stage
-FROM gcr.io/distroless/base-debian11:nonroot
-
-# Set environment variables
-ENV PYTHONPATH=/app \
-    PATH="/opt/venv/bin:$PATH" \
-    PORT=8000 \
-    LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
-
-WORKDIR /app
-
-# Copy Python from builder
-COPY --from=builder /usr/local/bin/python* /usr/local/bin/
-COPY --from=builder /usr/local/lib/python3.13 /usr/local/lib/python3.13
-COPY --from=builder /usr/local/lib/libpython3.13.so* /usr/local/lib/
-COPY --from=builder /usr/local/include/python3.13 /usr/local/include/python3.13
-
-# Copy virtual environment and necessary files from builder
-COPY --from=builder /opt/venv /opt/venv
-
-# Copy application code and static files with proper permissions
-COPY --from=builder --chown=nonroot:nonroot /app /app
-COPY --from=builder --chown=nonroot:nonroot /app/core ./core
-COPY --from=builder --chown=nonroot:nonroot /app/models ./models
-COPY --from=builder --chown=nonroot:nonroot /app/services ./services
-COPY --from=builder --chown=nonroot:nonroot /app/utils ./utils
-COPY --from=builder --chown=nonroot:nonroot /app/websocket ./websocket
-COPY --from=builder --chown=nonroot:nonroot /app/static ./static
-COPY --from=builder --chown=nonroot:nonroot /app/templates ./templates
-COPY --from=builder --chown=nonroot:nonroot /app/static ./static
-COPY --from=builder --chown=nonroot:nonroot /app/templates ./templates
-COPY --from=builder --chown=nonroot:nonroot /app/app.py .
-COPY --from=builder --chown=nonroot:nonroot /app/fcm_service.py .
-COPY --from=builder --chown=nonroot:nonroot /app/firebase_service.py .
-
-# Create necessary directories in builder stage
-RUN mkdir -p /app/static /app/templates
-
-# Copy system libraries
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libsndfile.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libFLAC.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libvorbis.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libogg.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /usr/lib/x86_64-linux-gnu/libvorbisenc.so* /usr/lib/x86_64-linux-gnu/
-COPY --from=builder /usr/bin/ffmpeg /usr/bin/
-
-# Update dynamic linker
-COPY --from=builder /etc/ld.so.cache /etc/ld.so.cache
-COPY --from=builder /lib/x86_64-linux-gnu/ld-linux-x86-64.so* /lib/x86_64-linux-gnu/
-
-# Copy application files
-COPY --from=builder /app/wheels /wheels
-COPY --from=builder /app/requirements.txt .
-
-# Install dependencies
-RUN pip install --no-cache-dir /wheels/* \
-    && rm -rf /wheels
-
-# Create necessary directories with correct permissions
-RUN mkdir -p static templates models
-
-# Copy application code
-COPY --from=builder /app/core ./core/
-COPY --from=builder /app/models ./models/
-COPY --from=builder /app/services ./services/
-COPY --from=builder /app/utils ./utils/
-COPY --from=builder /app/websocket ./websocket/
-COPY --from=builder /app/app.py .
-COPY --from=builder /app/fcm_service.py .
-COPY --from=builder /app/firebase_service.py .
-
-# Copy static files and templates
+# Copy application code and static files
+COPY core/ ./core/
+COPY models/ ./models/
+COPY services/ ./services/
+COPY utils/ ./utils/
+COPY websocket/ ./websocket/
 COPY static/ ./static/
 COPY templates/ ./templates/
+COPY app.py .
+COPY fcm_service.py .
+COPY firebase_service.py .
+
+# Change ownership of all copied files
+RUN chown -R nonroot:nonroot /app
+
+# Switch to nonroot user
+USER nonroot
 
 # Expose the port the app runs on
 EXPOSE ${PORT}
