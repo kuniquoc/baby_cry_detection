@@ -57,20 +57,21 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir wheel \
     && pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
-# Create necessary directories
-RUN mkdir -p /app/static /app/templates /app/data
+# Create necessary directories and set permissions
+RUN mkdir -p /app/static /app/templates /app/data && \
+    chown -R nobody:nobody /app
 
 # Copy source code for potential build dependencies
-COPY core/ ./core/
-COPY models/ ./models/
-COPY services/ ./services/
-COPY utils/ ./utils/
-COPY websocket/ ./websocket/
-COPY static/ ./static/
-COPY templates/ ./templates/
-COPY app.py .
-COPY fcm_service.py .
-COPY firebase_service.py .
+COPY --chown=nobody:nobody core/ ./core/
+COPY --chown=nobody:nobody models/ ./models/
+COPY --chown=nobody:nobody services/ ./services/
+COPY --chown=nobody:nobody utils/ ./utils/
+COPY --chown=nobody:nobody websocket/ ./websocket/
+COPY --chown=nobody:nobody static/ ./static/
+COPY --chown=nobody:nobody templates/ ./templates/
+COPY --chown=nobody:nobody app.py .
+COPY --chown=nobody:nobody fcm_service.py .
+COPY --chown=nobody:nobody firebase_service.py .
 
 # Final stage
 FROM gcr.io/distroless/base-debian11:nonroot
@@ -93,12 +94,20 @@ COPY --from=builder /usr/local/include/python3.13 /usr/local/include/python3.13
 # Copy virtual environment and necessary files from builder
 COPY --from=builder /opt/venv /opt/venv
 
+# Create necessary directories in final stage
+USER root
+RUN mkdir -p /app/static /app/templates /app/data && \
+    chown -R nonroot:nonroot /app
+USER nonroot
+
 # Copy application code and static files
 COPY --from=builder --chown=nonroot:nonroot /app/core ./core
 COPY --from=builder --chown=nonroot:nonroot /app/models ./models
 COPY --from=builder --chown=nonroot:nonroot /app/services ./services
 COPY --from=builder --chown=nonroot:nonroot /app/utils ./utils
 COPY --from=builder --chown=nonroot:nonroot /app/websocket ./websocket
+COPY --from=builder --chown=nonroot:nonroot /app/static ./static
+COPY --from=builder --chown=nonroot:nonroot /app/templates ./templates
 COPY --from=builder --chown=nonroot:nonroot /app/static ./static
 COPY --from=builder --chown=nonroot:nonroot /app/templates ./templates
 COPY --from=builder --chown=nonroot:nonroot /app/app.py .
