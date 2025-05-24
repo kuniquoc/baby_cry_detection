@@ -10,9 +10,11 @@ numpy
 soundfile
 tqdm
 scikit-learn
---find-links https://download.pytorch.org/whl/torch_stable.html
-torch==2.1.0+cpu
-torchvision==0.16.0+cpu
+
+# PyTorch CPU-only (no specific version - let pip choose compatible)
+--index-url https://download.pytorch.org/whl/cpu
+torch
+torchvision
 
 # Firebase Integration
 firebase-admin
@@ -24,6 +26,3 @@ websockets
 
 # Environment & Configuration
 python-dotenv
-
-
-
