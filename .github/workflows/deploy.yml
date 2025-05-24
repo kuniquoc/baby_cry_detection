@@ -65,7 +65,6 @@ jobs:
                 - "\${PORT}:8000"
               volumes:
                 - ./api/firebase-credentials.json:/app/firebase-credentials.json
-                - ./api/data:/app/data
               restart: always
           EOF
 
