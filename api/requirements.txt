@@ -10,8 +10,9 @@ numpy
 soundfile
 tqdm
 scikit-learn
-torch
-torchvision
+--find-links https://download.pytorch.org/whl/torch_stable.html
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
 
 # Firebase Integration
 firebase-admin
