@@ -59,19 +59,19 @@ RUN pip install --no-cache-dir wheel \
 
 # Create necessary directories and set permissions
 RUN mkdir -p /app/static /app/templates /app/data && \
-    chown -R nobody:nobody /app
+    chown -R nonroot:nonroot /app
 
 # Copy source code for potential build dependencies
-COPY --chown=nobody:nobody core/ ./core/
-COPY --chown=nobody:nobody models/ ./models/
-COPY --chown=nobody:nobody services/ ./services/
-COPY --chown=nobody:nobody utils/ ./utils/
-COPY --chown=nobody:nobody websocket/ ./websocket/
-COPY --chown=nobody:nobody static/ ./static/
-COPY --chown=nobody:nobody templates/ ./templates/
-COPY --chown=nobody:nobody app.py .
-COPY --chown=nobody:nobody fcm_service.py .
-COPY --chown=nobody:nobody firebase_service.py .
+COPY --chown=nonroot:nonroot core/ ./core/
+COPY --chown=nonroot:nonroot models/ ./models/
+COPY --chown=nonroot:nonroot services/ ./services/
+COPY --chown=nonroot:nonroot utils/ ./utils/
+COPY --chown=nonroot:nonroot websocket/ ./websocket/
+COPY --chown=nonroot:nonroot static/ ./static/
+COPY --chown=nonroot:nonroot templates/ ./templates/
+COPY --chown=nonroot:nonroot app.py .
+COPY --chown=nonroot:nonroot fcm_service.py .
+COPY --chown=nonroot:nonroot firebase_service.py .
 
 # Final stage
 FROM gcr.io/distroless/base-debian11:nonroot
