@@ -1,0 +1,83 @@
+name: Deploy Baby Cry Detection API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Create firebase credentials file
+        run: |
+          echo "${{ secrets.FIREBASE_CREDENTIALS }}" > api/firebase-credentials.json
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          file: ./api/Dockerfile
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
+          build-args: |
+            PYTHONPATH=/app
+
+      - name: Create docker-compose env file
+        run: |
+          cat > .env.docker-compose << EOF
+          DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+          PORT=8000
+          EOF
+
+      - name: Create docker-compose.yml
+        run: |
+          cat > docker-compose.yml << EOF
+          version: '3.8'
+          services:
+            api:
+              image: \${DOCKER_USERNAME}/baby_cry_detection:latest
+              ports:
+                - "\${PORT}:8000"
+              volumes:
+                - ./firebase-credentials.json:/app/firebase-credentials.json
+              restart: always
+          EOF
+
+      - name: Copy files to VPS
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USERNAME }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          source: "docker-compose.yml,.env.docker-compose,api/firebase-credentials.json"
+          target: "~/baby_cry_detection"
+          strip_components: 0
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VPS_IP }}
+          username: ${{ secrets.VPS_USERNAME }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script: |
+            mkdir -p ~/baby_cry_detection
+            cd ~/baby_cry_detection
+            docker-compose down || true
+            docker pull ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
+            docker-compose --env-file .env.docker-compose up -d

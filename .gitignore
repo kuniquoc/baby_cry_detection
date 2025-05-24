@@ -6,6 +6,10 @@ api/firebase-credentials.json
 # Data
 # Ignore all data files and directories
 data/
+scripts/
+results/
+delete.txt
+
 
 # Python
 __pycache__/
