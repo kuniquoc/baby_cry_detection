@@ -63,6 +63,8 @@ COPY models/ ./models/
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY websocket/ ./websocket/
+COPY static/ ./static/
+COPY templates/ ./templates/
 COPY app.py .
 COPY fcm_service.py .
 COPY firebase_service.py .
@@ -88,6 +90,18 @@ COPY --from=builder /usr/local/include/python3.13 /usr/local/include/python3.13
 # Copy virtual environment and necessary files from builder
 COPY --from=builder /opt/venv /opt/venv
 
+# Copy application code and static files
+COPY --from=builder /app/core ./core
+COPY --from=builder /app/models ./models
+COPY --from=builder /app/services ./services
+COPY --from=builder /app/utils ./utils
+COPY --from=builder /app/websocket ./websocket
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/templates ./templates
+COPY --from=builder /app/app.py .
+COPY --from=builder /app/fcm_service.py .
+COPY --from=builder /app/firebase_service.py .
+
 # Copy system libraries
 COPY --from=builder /usr/lib/x86_64-linux-gnu/libsndfile.so* /usr/lib/x86_64-linux-gnu/
 COPY --from=builder /usr/lib/x86_64-linux-gnu/libFLAC.so* /usr/lib/x86_64-linux-gnu/
@@ -99,6 +113,9 @@ COPY --from=builder /usr/bin/ffmpeg /usr/bin/
 # Update dynamic linker
 COPY --from=builder /etc/ld.so.cache /etc/ld.so.cache
 COPY --from=builder /lib/x86_64-linux-gnu/ld-linux-x86-64.so* /lib/x86_64-linux-gnu/
+
+# Create necessary directories
+RUN mkdir -p /app/static
 
 # Copy application files
 COPY --from=builder /app/wheels /wheels
