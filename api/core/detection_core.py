@@ -16,6 +16,7 @@ class CryDetectionCore:
     def __init__(self, model_manager: ModelManager):
         self.model_manager = model_manager
         self.confidence_threshold = 0.8
+        self.min_consecutive_segments = 2  # Minimum number of consecutive cry segments to confirm crying
 
     def process_segment(self, audio_data: np.ndarray, sr: int) -> Tuple[str, float]:
         """Process a single audio segment for cry detection"""
