@@ -259,7 +259,6 @@ def main():
         print("\nKiểm tra thư mục có cấu trúc chứa nhãn (cry/not_cry):")
         print("python src/inference.py --model runs/latest/checkpoints/last_model.pth --dir data/test_dataset --structured --output ketqua.csv")
         #python src/inference.py --model D:\Git\baby_cry_detection\runs\20250406_182137\checkpoints\last_model.pth  --dir D:\Git\baby_cry_detection\data\dataset\test --structured --output D:\Git\baby_cry_detection\results\test_predictions.csv
-
         return
     
     # Validate arguments

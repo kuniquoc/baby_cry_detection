@@ -14,7 +14,7 @@ from src.preprocess import extract_mfcc
 logger = logging.getLogger(__name__)
 
 class ModelManager:
-    def __init__(self, model_path: str = "runs/20250406_182137/checkpoints/last_model.pth"):
+    def __init__(self, model_path: str = "D:/Git/baby_cry_detection/api/runs/20250515_003039/checkpoints/best_model_acc.pth"):
         self.model = None
         self.device = None
         self.label_encoder = None
@@ -37,8 +37,18 @@ class ModelManager:
             self.model = MobileNetV2_Crying().to(self.device)
             
             # Load model weights
-            checkpoint = torch.load(self.model_path, map_location=self.device)
-            self.model.load_state_dict(checkpoint['model_state_dict'])
+            checkpoint = torch.load(self.model_path, map_location=self.device, weights_only=False)
+            state_dict = checkpoint['model_state_dict']
+            
+            # Remove 'module.' prefix if it exists (handle DataParallel)
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                if k.startswith('module.'):
+                    new_state_dict[k[7:]] = v  # Remove first 7 chars ('module.')
+                else:
+                    new_state_dict[k] = v
+                    
+            self.model.load_state_dict(new_state_dict)
             
             # Print model information
             logger.info(f"Model loaded successfully from {self.model_path}")

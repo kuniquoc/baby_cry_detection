@@ -6,6 +6,12 @@ from fastapi.templating import Jinja2Templates
 import logging
 import os
 import sys
+import json
+import io
+import wave
+import base64
+import numpy as np
+from datetime import datetime
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -153,70 +159,215 @@ async def analyze_audio(audio: UploadFile = File(...)):
 
 @app.websocket("/ws/{client_id}")
 async def websocket_endpoint(websocket: WebSocket, client_id: str):
-    """WebSocket endpoint for real-time audio processing."""
+    """
+    WebSocket endpoint for real-time audio processing with cry detection.
+    
+    Parameters:
+    ----------
+    websocket : WebSocket
+        The WebSocket connection object
+    client_id : str
+        Unique identifier for the client connection, also used as deviceId for Firebase
+        
+    Expected Message Format:
+    ---------------------
+    JSON object containing:
+    {
+        "timestamp": float (required)
+            Unix timestamp in seconds
+        "sample_rate": int (optional, default=16000)
+            Audio sample rate in Hz
+        "channels": int (optional, default=1)
+            Number of audio channels
+        "audio_data": str (required)
+            Base64-encoded WAV audio data
+    }
+    
+    Sent Message Types:
+    -----------------
+    1. Prediction Result:
+    {
+        "type": "prediction",
+        "timestamp": float,
+        "predicted_class": str,
+        "confidence": float
+    }
+    
+    2. Alert (on cry detection):
+    {
+        "type": "alert",
+        "timestamp": float,
+        "message": str,
+        "confidence": float,
+        "deviceId": str
+    }
+    
+    3. Error:
+    {
+        "type": "error",
+        "message": str,
+        "details": dict (optional)
+    }
+    
+    Notes:
+    -----
+    - Connection remains open for continuous real-time processing
+    - Audio chunks should be exactly 3 seconds in length
+    - Cry detection triggers when confidence > 0.8
+    - Firebase events and notifications are processed according to the history
+    - No-cry event is triggered if no crying is detected for 10 seconds after a cry
+    """
     logger.info(f"New WebSocket connection request from client {client_id}")
     
     try:
+        # Initialize connection and tracking
         await connection_manager.connect(websocket, client_id)
         cry_detection_service.init_device_tracking(client_id)
         
         while True:
             try:
-                # Receive and validate audio data
+                # Receive and validate message
                 data = await websocket.receive_json()
-                message = WebSocketMessage(**data)
+                timestamp = data.get("timestamp")
+                sample_rate = data.get("sample_rate", 16000)
+                channels = data.get("channels", 1)
+                audio_data_base64 = data.get("audio_data")
                 
+                # Validate required fields
+                if not all([timestamp, audio_data_base64]):
+                    await connection_manager.send_message(client_id, {
+                        "type": "error",
+                        "message": "Missing required fields in payload",
+                        "details": {
+                            "timestamp": "missing" if not timestamp else "ok",
+                            "audio_data": "missing" if not audio_data_base64 else "ok"
+                        }
+                    })
+                    continue
+
                 try:
-                    # Decode and process audio
-                    audio_data, sr = decode_base64_audio(
-                        message.audio_data,
-                        message.channels,
-                        message.sample_rate
-                    )
-                    
+                    # Decode and validate audio data
+                    try:
+                        audio_data_bytes = base64.b64decode(audio_data_base64)
+                    except Exception as e:
+                        await connection_manager.send_message(client_id, {
+                            "type": "error",
+                            "message": "Invalid base64 audio data",
+                            "details": str(e)
+                        })
+                        continue
+
+                    # Validate audio metadata
+                    with wave.open(io.BytesIO(audio_data_bytes), 'rb') as wf:
+                        if wf.getnchannels() != channels or wf.getframerate() != sample_rate:
+                            await connection_manager.send_message(client_id, {
+                                "type": "error",
+                                "message": "Audio metadata mismatch",
+                                "details": {
+                                    "expected_channels": channels,
+                                    "actual_channels": wf.getnchannels(),
+                                    "expected_sample_rate": sample_rate,
+                                    "actual_sample_rate": wf.getframerate()
+                                }
+                            })
+                            continue
+                            
+                        # Verify audio length
+                        audio_length = wf.getnframes() / wf.getframerate()
+                        if not (2.9 <= audio_length <= 3.1):
+                            await connection_manager.send_message(client_id, {
+                                "type": "error",
+                                "message": "Audio length must be 3 seconds",
+                                "details": {
+                                    "expected_length": 3.0,
+                                    "actual_length": audio_length
+                                }
+                            })
+                            continue
+                            
+                        try:
+                            audio_data = np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16)
+                        except Exception as e:
+                            await connection_manager.send_message(client_id, {
+                                "type": "error",
+                                "message": "Failed to read audio frames",
+                                "details": str(e)
+                            })
+                            continue
+
                     # Get prediction
-                    predicted_class, confidence = detection_core.process_segment(audio_data, sr)
-                    
+                    try:
+                        predicted_class, confidence = detection_core.process_segment(audio_data, sample_rate)
+                    except Exception as e:
+                        await connection_manager.send_message(client_id, {
+                            "type": "error",
+                            "message": "Prediction failed",
+                            "details": str(e)
+                        })
+                        continue
+
                     # Send prediction result
                     await connection_manager.send_message(client_id, {
                         "type": "prediction",
-                        "timestamp": message.timestamp,
+                        "timestamp": timestamp,
                         "predicted_class": predicted_class,
                         "confidence": confidence
                     })
-                    
-                    # Check if we should trigger cry detection processing
-                    if detection_core.should_trigger_notification(
-                        predicted_class, 
-                        confidence,
-                        cry_detection_service.cry_status_tracker.get(client_id, {}).get('last_cry_time')
-                    ):
+
+                    # Process high-confidence cry detection
+                    if predicted_class == "cry" and confidence > 0.8:
+                        # Save audio file for record
+                        try:
+                            save_dir = os.path.join("api", "data", "cry_detections")
+                            os.makedirs(save_dir, exist_ok=True)
+                            timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
+                            audio_filename = f"cry_detected_{timestamp_str}.wav"
+                            audio_filepath = os.path.join(save_dir, audio_filename)
+                            
+                            with open(audio_filepath, 'wb') as f:
+                                f.write(audio_data_bytes)
+                            logger.info(f"Saved cry detection audio to: {audio_filepath}")
+                        except Exception as e:
+                            logger.error(f"Failed to save audio file: {str(e)}")
+
+                        # Process cry detection through service
                         await cry_detection_service.process_cry_detection(
                             client_id=client_id,
-                            timestamp=message.timestamp,
+                            timestamp=timestamp,
                             confidence=confidence
                         )
-                    
-                except AudioProcessingError as e:
-                    await connection_manager.send_message(
-                        client_id, 
-                        format_error_response("Error processing audio", e.details)
-                    )
-                    
+
+                except Exception as e:
+                    logger.error(f"Error processing audio chunk: {str(e)}")
+                    await connection_manager.send_message(client_id, {
+                        "type": "error",
+                        "message": "Internal processing error",
+                        "details": str(e)
+                    })
+
             except WebSocketDisconnect:
                 logger.info(f"Client {client_id} disconnected")
                 break
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON received: {str(e)}")
+                await connection_manager.send_message(client_id, {
+                    "type": "error",
+                    "message": "Invalid JSON format",
+                    "details": str(e)
+                })
             except Exception as e:
                 logger.error(f"Error in websocket loop: {str(e)}")
-                await connection_manager.send_message(
-                    client_id,
-                    format_error_response("Internal server error", {"error": str(e)})
-                )
+                await connection_manager.send_message(client_id, {
+                    "type": "error",
+                    "message": "Internal server error",
+                    "details": str(e)
+                })
                 break
-                
+
     except Exception as e:
         logger.error(f"WebSocket connection error: {str(e)}")
     finally:
+        # Cleanup resources
         cry_detection_service.cleanup_device_tracking(client_id)
         connection_manager.disconnect(client_id)
 

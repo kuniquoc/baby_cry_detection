@@ -6,7 +6,6 @@ jinja2
 # Machine Learning & Audio Processing
 pandas
 librosa
-torch
 numpy
 soundfile
 tqdm

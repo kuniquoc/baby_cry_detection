@@ -16,7 +16,6 @@ class CryDetectionCore:
     def __init__(self, model_manager: ModelManager):
         self.model_manager = model_manager
         self.confidence_threshold = 0.8
-        self.min_consecutive_segments = 2
 
     def process_segment(self, audio_data: np.ndarray, sr: int) -> Tuple[str, float]:
         """Process a single audio segment for cry detection"""
@@ -93,20 +92,11 @@ class CryDetectionCore:
 
     def should_trigger_notification(self, 
                                  prediction: str, 
-                                 confidence: float,
-                                 last_notification_time: Optional[float] = None,
-                                 min_interval: float = 10.0) -> bool:
+                                 confidence: float) -> bool:
         """Determine if a notification should be triggered based on prediction results"""
-        import time
         
         # Basic confidence threshold check
         if prediction != "cry" or confidence < self.confidence_threshold:
             return False
-        
-        # Check notification interval if last notification time is provided
-        if last_notification_time is not None:
-            current_time = time.time()
-            if current_time - last_notification_time < min_interval:
-                return False
         
         return True
