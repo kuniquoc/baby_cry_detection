@@ -12,7 +12,7 @@ tqdm
 scikit-learn
 
 # PyTorch CPU-only (no specific version - let pip choose compatible)
---index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchvision
 
