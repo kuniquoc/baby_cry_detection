@@ -2,10 +2,16 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import os
 import logging
+import base64
+import json
 from typing import Dict, List, Any, Optional, Tuple, Callable
 from fcm_service import send_crying_notification_fcm
+from dotenv import load_dotenv
 
 from utils.date_utils import convert_utc_timestamp_to_vn_datetime
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -24,9 +30,6 @@ EVENT_TYPES = {
 # Firebase state
 firebase_initialized: bool = False
 firestore_client: Optional[firestore.Client] = None
-# snapshot_callbacks: Dict[str, List[Callable]] = {}  # Store cleanup callbacks for each device
-# latest_event_docs: Dict[str, Dict] = {}  # Store latest events by device ID
-# latest_notification_docs: Dict[str, Dict] = {}  # Store latest notifications by device ID
 
 class FirebaseInitError(Exception):
     """Custom exception for Firebase initialization errors"""
@@ -40,16 +43,24 @@ def initialize_firebase() -> bool:
         return True
     
     try:
-        cred_path = os.path.join(os.path.dirname(__file__), "firebase-credentials.json")
-        if not os.path.exists(cred_path):
-            raise FirebaseInitError(f"Firebase credentials file not found at: {cred_path}")
+        # Get base64 encoded credentials from environment variable
+        firebase_creds_base64 = os.getenv('FIREBASE_CREDENTIALS_BASE64')
+        if not firebase_creds_base64:
+            raise FirebaseInitError("FIREBASE_CREDENTIALS_BASE64 environment variable not found")
             
-        cred = credentials.Certificate(cred_path)
+        # Decode base64 credentials
+        try:
+            creds_json = base64.b64decode(firebase_creds_base64).decode('utf-8')
+            creds_dict = json.loads(creds_json)
+        except Exception as e:
+            raise FirebaseInitError(f"Failed to decode Firebase credentials: {str(e)}")
+            
+        cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         firestore_client = firestore.client()
         
         firebase_initialized = True
-        logger.info("Firebase successfully initialized")
+        logger.info("Firebase successfully initialized using base64 credentials")
         return True
         
     except Exception as e:

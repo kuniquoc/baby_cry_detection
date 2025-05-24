@@ -11,8 +11,14 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import os
 import logging
+import base64
+import json
 from datetime import datetime, timedelta
 import pytz
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
@@ -25,12 +31,21 @@ logger = logging.getLogger(__name__)
 def initialize_firebase() -> bool:
     """Initialize Firebase connection if not already initialized"""
     try:
-        cred_path = os.path.join(os.path.dirname(__file__), "firebase-credentials.json")
-        if not os.path.exists(cred_path):
-            logger.error(f"Firebase credentials file not found at: {cred_path}")
+        # Get base64 encoded credentials from environment variable
+        firebase_creds_base64 = os.getenv('FIREBASE_CREDENTIALS_BASE64')
+        if not firebase_creds_base64:
+            logger.error("FIREBASE_CREDENTIALS_BASE64 environment variable not found")
             return False
             
-        cred = credentials.Certificate(cred_path)
+        # Decode base64 credentials
+        try:
+            creds_json = base64.b64decode(firebase_creds_base64).decode('utf-8')
+            creds_dict = json.loads(creds_json)
+        except Exception as e:
+            logger.error(f"Failed to decode Firebase credentials: {str(e)}")
+            return False
+            
+        cred = credentials.Certificate(creds_dict)
         firebase_admin.initialize_app(cred)
         return True
         

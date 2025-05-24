@@ -48,6 +48,7 @@ jobs:
           cat > .env.docker-compose << EOF
           DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
           PORT=8000
+          FIREBASE_CREDENTIALS_BASE64=${{ secrets.FIREBASE_CREDENTIALS_BASE64 }}
           EOF
 
       - name: Create docker-compose.yml
@@ -59,8 +60,8 @@ jobs:
               image: ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
               ports:
                 - "8000:8000"
-              volumes:
-                - ./firebase-credentials.json:/app/firebase-credentials.json:ro
+              environment:
+                - FIREBASE_CREDENTIALS_BASE64=\${FIREBASE_CREDENTIALS_BASE64}
               restart: always
           EOF
 
@@ -73,16 +74,6 @@ jobs:
           source: "docker-compose.yml,.env.docker-compose"
           target: "~/baby_cry_detection"
           strip_components: 0
-
-      - name: Create Firebase credentials on VPS
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.VPS_IP }}
-          username: ${{ secrets.VPS_USERNAME }}
-          password: ${{ secrets.VPS_PASSWORD }}
-          script: |
-            cd ~/baby_cry_detection
-            echo "${{ secrets.FIREBASE_CREDENTIALS }}" | base64 -d > firebase-credentials.json
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@master
