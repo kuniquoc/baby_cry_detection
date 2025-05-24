@@ -69,6 +69,7 @@ RUN mkdir -p /app/static /app/templates /app/data && \
 COPY core/ ./core/
 COPY models/ ./models/
 COPY services/ ./services/
+COPY src/ ./src/
 COPY utils/ ./utils/
 COPY websocket/ ./websocket/
 COPY static/ ./static/
