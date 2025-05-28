@@ -22,17 +22,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from models.schemas import PredictionResult, AudioAnalysisResult, WebSocketMessage
+from models.schemas import PredictionResult, AudioAnalysisResult
 from models.model_manager import ModelManager
 from websocket.connection_manager import ConnectionManager
 from services.cry_detection_service import CryDetectionService
 from core.detection_core import CryDetectionCore
-from utils.audio_utils import load_audio_file, decode_base64_audio, save_audio_segment
+from utils.audio_utils import load_audio_file
 from utils.error_handling import (
     AudioProcessingError, 
     AudioFormatError,
     handle_audio_error,
-    format_error_response
 )
 
 # Initialize FastAPI app
@@ -97,12 +96,12 @@ async def predict(audio: UploadFile = File(...)):
         # Get prediction using detection core
         predicted_class, confidence = detection_core.process_segment(audio_data, sr)
         
-        result = {"predicted_class": predicted_class, "confidence": confidence}
-        
         # Log response time
-        response_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"API /predict response time: {response_time:.3f}s")
-        
+        response_time = (datetime.now() - start_time).total_seconds() * 1000  # Convert to milliseconds
+        logger.info(f"API /predict response time: {response_time:.1f}ms")
+
+        result = {"predicted_class": predicted_class, "confidence": confidence, "response_time": response_time}
+
         return result
     
     except AudioProcessingError as e:
@@ -168,17 +167,17 @@ async def analyze_audio(audio: UploadFile = File(...)):
             "has_consecutive_cry": consecutive_info["detected"]
         }
         
+        # Log response time
+        response_time = (datetime.now() - start_time).total_seconds() * 1000  # Convert to milliseconds
+        logger.info(f"API /analyze response time: {response_time:.1f}ms for file {audio.filename} (length: {audio_length:.1f}s)")
+        
         result = {
             "filename": audio.filename,
             "segments": segments,
             "consecutive_cry_info": consecutive_info,
-            "summary": summary
+            "summary": summary,
+            "response_time": response_time
         }
-        
-        # Log response time
-        response_time = (datetime.now() - start_time).total_seconds()
-        logger.info(f"API /analyze response time: {response_time:.3f}s for file {audio.filename} (length: {audio_length:.1f}s)")
-        
         return result
         
     except AudioProcessingError as e:
