@@ -57,9 +57,23 @@ async def startup_event():
     """Initialize services on startup"""
     try:
         model_manager.load_model()
+        await cry_detection_service.start_periodic_check()
         logger.info("Services initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize services: {str(e)}")
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up services on shutdown"""
+    try:
+        # Send final no-cry events before stopping the service
+        await cry_detection_service.send_final_no_cry_events()
+        # Stop the periodic check
+        await cry_detection_service.stop_periodic_check()
+        logger.info("Services cleaned up successfully")
+    except Exception as e:
+        logger.error(f"Error during service cleanup: {str(e)}")
         raise
 
 @app.get("/", response_class=HTMLResponse)
@@ -70,6 +84,8 @@ async def get_root(request: Request):
 @app.post("/predict/", response_model=PredictionResult)
 async def predict(audio: UploadFile = File(...)):
     """Make a prediction on a 3-second audio file."""
+    start_time = datetime.now()
+    
     if not audio.filename.lower().endswith(('.wav')):
         raise AudioFormatError("Only WAV files are supported")
     
@@ -81,7 +97,13 @@ async def predict(audio: UploadFile = File(...)):
         # Get prediction using detection core
         predicted_class, confidence = detection_core.process_segment(audio_data, sr)
         
-        return {"predicted_class": predicted_class, "confidence": confidence}
+        result = {"predicted_class": predicted_class, "confidence": confidence}
+        
+        # Log response time
+        response_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"API /predict response time: {response_time:.3f}s")
+        
+        return result
     
     except AudioProcessingError as e:
         raise handle_audio_error(e)
@@ -92,6 +114,8 @@ async def predict(audio: UploadFile = File(...)):
 @app.post("/analyze/", response_model=AudioAnalysisResult)
 async def analyze_audio(audio: UploadFile = File(...)):
     """Analyze a longer audio file by splitting it into segments."""
+    start_time = datetime.now()
+    
     if not audio.filename.lower().endswith(('.wav')):
         raise AudioFormatError("Only WAV files are supported")
     
@@ -144,12 +168,18 @@ async def analyze_audio(audio: UploadFile = File(...)):
             "has_consecutive_cry": consecutive_info["detected"]
         }
         
-        return {
+        result = {
             "filename": audio.filename,
             "segments": segments,
             "consecutive_cry_info": consecutive_info,
             "summary": summary
         }
+        
+        # Log response time
+        response_time = (datetime.now() - start_time).total_seconds()
+        logger.info(f"API /analyze response time: {response_time:.3f}s for file {audio.filename} (length: {audio_length:.1f}s)")
+        
+        return result
         
     except AudioProcessingError as e:
         raise handle_audio_error(e)
