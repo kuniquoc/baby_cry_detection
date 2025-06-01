@@ -30,4 +30,4 @@ class WebSocketMessage(BaseModel):
     timestamp: float
     sample_rate: int = 16000
     channels: int = 1
-    audio_data: str  # Base64 encoded WAV data
+    audio_data: str
