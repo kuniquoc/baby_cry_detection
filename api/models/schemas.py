@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 class PredictionResult(BaseModel):
     predicted_class: str
     confidence: float
+    response_time: float
 
 class SegmentPrediction(BaseModel):
     segment_index: int
@@ -23,6 +24,7 @@ class AudioAnalysisResult(BaseModel):
     segments: List[SegmentPrediction]
     consecutive_cry_info: ConsecutiveCryInfo
     summary: Dict[str, Any]
+    response_time: float
 
 class WebSocketMessage(BaseModel):
     timestamp: float
