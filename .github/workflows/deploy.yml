@@ -58,6 +58,7 @@ jobs:
           services:
             api:
               image: ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
+              pull_policy: always
               ports:
                 - "8000:8000"
               environment:
@@ -85,5 +86,6 @@ jobs:
             mkdir -p ~/baby_cry_detection
             cd ~/baby_cry_detection
             docker-compose down || true
-            docker pull ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest
+            docker rmi ${{ secrets.DOCKER_USERNAME }}/baby_cry_detection:latest || true 
+            docker-compose --env-file .env.docker-compose pull 
             docker-compose --env-file .env.docker-compose up -d
