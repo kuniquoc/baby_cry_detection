@@ -69,10 +69,23 @@ def initialize_firebase() -> bool:
 
 def get_device_settings(device_ref: firestore.DocumentReference) -> Tuple[int, bool]:
     """Get device settings from Firestore"""
-    device_doc = device_ref.get()
-    device_data = device_doc.to_dict()
-    cry_threshold = device_data.get('cryingThreshold')
-    return cry_threshold, True
+    try:
+        device_doc = device_ref.get()
+        if not device_doc.exists:
+            logger.error("Device document does not exist")
+            return DEFAULT_CRY_THRESHOLD, False
+            
+        device_data = device_doc.to_dict()
+        if not device_data:
+            logger.error("Device document is empty")
+            return DEFAULT_CRY_THRESHOLD, False
+            
+        cry_threshold = device_data.get('cryingThreshold', DEFAULT_CRY_THRESHOLD)
+        return cry_threshold, True
+        
+    except Exception as e:
+        logger.error(f"Error getting device settings: {str(e)}")
+        return DEFAULT_CRY_THRESHOLD, False
 
 def create_notification_doc(timestamp: int, duration: float) -> Dict[str, Any]:
     """Create notification document data"""
@@ -114,22 +127,28 @@ async def send_cry_notification(notification_data: Dict[str, Any]) -> bool:
         if not device_id or not current_timestamp:
             logger.error("DeviceId and timestamp are required")
             return False
-        
-        # Get Firestore references
+            
+        # Validate device exists in Firestore
         device_ref = firestore_client.collection('devices').document(device_id)
+        if not device_ref.get().exists:
+            logger.error(f"Device {device_id} does not exist in Firestore")
+            return False
+            
+        # Get Firestore references
         events_ref = device_ref.collection('events')
         notifications_ref = device_ref.collection('notifications')
         
         # Get device settings
         cry_threshold, settings_success = get_device_settings(device_ref)
         if not settings_success:
-            return False
+            logger.warning(f"Using default cry threshold for device {device_id}")
             
         # Get latest event
-        latest_events = events_ref.where("type", "in", [EVENT_TYPES['CRYING'], EVENT_TYPES['NO_CRYING']]) \
-                              .order_by('time', direction=firestore.Query.DESCENDING) \
-                              .limit(1) \
-                              .stream()
+        latest_events = (events_ref
+                        .where(field_path="type", op_string="in", value=[EVENT_TYPES['CRYING'], EVENT_TYPES['NO_CRYING']])
+                        .order_by('time', direction=firestore.Query.DESCENDING)
+                        .limit(1)
+                        .stream())
         
         last_event = next(({"id": event.id, **event.to_dict()} for event in latest_events), None)
         
@@ -145,15 +164,21 @@ async def send_cry_notification(notification_data: Dict[str, Any]) -> bool:
             return True
             
         # If last event was CRYING, check if we should create a notification
-        if last_event.get('type') == EVENT_TYPES['CRYING']:
-            last_crying_time = last_event.get('time').timestamp()
+        if last_event and last_event.get('type') == EVENT_TYPES['CRYING']:
+            event_time = last_event.get('time')
+            if not event_time:
+                logger.error(f"Missing timestamp in last crying event for device {device_id}")
+                return False
+                
+            last_crying_time = event_time.timestamp()
             duration = current_timestamp - last_crying_time
             
             # Get latest notification
-            latest_notifications = notifications_ref.where("type", "==", EVENT_TYPES['CRYING']) \
-                                               .order_by('time', direction=firestore.Query.DESCENDING) \
-                                               .limit(1) \
-                                               .stream()
+            latest_notifications = (notifications_ref
+                                  .where(field_path="type", op_string="==", value=EVENT_TYPES['CRYING'])
+                                  .order_by('time', direction=firestore.Query.DESCENDING)
+                                  .limit(1)
+                                  .stream())
             
             last_notification = next(({"id": notif.id, **notif.to_dict()} for notif in latest_notifications), None)
             
@@ -192,26 +217,41 @@ async def send_nocry_notification(data: Dict[str, Any]) -> bool:
     
     try:
         device_id = data['deviceId']
-        current_timestamp = int(data['timestamp'])
+        current_timestamp = float(data['timestamp'])  # Keep as float to preserve precision
         
         events_ref = firestore_client.collection('devices').document(device_id).collection('events')
         
         # Get most recent event
-        latest_events = events_ref.where("type", "in", [EVENT_TYPES['CRYING'], EVENT_TYPES['NO_CRYING']]) \
-                              .order_by('time', direction=firestore.Query.DESCENDING) \
-                              .limit(1) \
-                              .stream()
+        latest_events = (events_ref
+                        .where(field_path="type", op_string="in", value=[EVENT_TYPES['CRYING'], EVENT_TYPES['NO_CRYING']])
+                        .order_by('time', direction=firestore.Query.DESCENDING)
+                        .limit(1)
+                        .stream())
         
         last_event = next(({"id": event.id, **event.to_dict()} for event in latest_events), None)
             
-        # Add NoCrying event only if last event was Crying
-        if last_event and last_event.get('type') == EVENT_TYPES['CRYING']:
-            events_ref.add({
-                'type': EVENT_TYPES['NO_CRYING'],
-                'time': convert_utc_timestamp_to_vn_datetime(current_timestamp)  # Convert to datetime
-            })
+        # Add NoCrying event regardless of last event type if we have a valid lastCryTimestamp
+        # This ensures no-cry events are created when needed
+        if data.get('lastCryTimestamp') is not None:
+            # Only add if last event was NOT already a no-crying event at the same time
+            should_add_event = True
+            if last_event and last_event.get('type') == EVENT_TYPES['NO_CRYING']:
+                # Check if the last no-cry event was for the same cry session
+                last_event_timestamp = last_event.get('time').timestamp() if last_event.get('time') else 0
+                # If last no-cry event was very recent (within 2 seconds), skip to avoid duplicates
+                if abs(current_timestamp - last_event_timestamp) < 2:
+                    should_add_event = False
+                    logger.debug(f"Skipping duplicate no-cry event for device {device_id}")
             
-            logger.info(f"Added NoCrying event at {convert_utc_timestamp_to_vn_datetime(data['timestamp'])} for device {device_id}")
+            if should_add_event:
+                events_ref.add({
+                    'type': EVENT_TYPES['NO_CRYING'],
+                    'time': convert_utc_timestamp_to_vn_datetime(current_timestamp)  # Convert to datetime
+                })
+                
+                logger.info(f"Added NoCrying event at {convert_utc_timestamp_to_vn_datetime(data['timestamp'])} for device {device_id}")
+        else:
+            logger.warning(f"No lastCryTimestamp provided for device {device_id}, skipping no-cry event")
             
         return True
             
@@ -229,7 +269,7 @@ async def get_fcm_tokens_for_device(device_id: str) -> Tuple[List[Tuple[str, str
         fcm_tokens: List[Tuple[str, str, str]] = []
         
         connections = firestore_client.collection('connections') \
-                                   .where('deviceId', '==', device_id) \
+                                   .where(field_path='deviceId', op_string='==', value=device_id) \
                                    .stream()
                                    
         for connection in connections:

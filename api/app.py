@@ -345,19 +345,19 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 
                     # Process high-confidence cry detection
                     if predicted_class == "cry" and confidence > 0.8:
-                        # Save audio file for record
-                        try:
-                            save_dir = os.path.join("api", "data", "cry_detections")
-                            os.makedirs(save_dir, exist_ok=True)
-                            timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
-                            audio_filename = f"cry_detected_{timestamp_str}.wav"
-                            audio_filepath = os.path.join(save_dir, audio_filename)
+                        # # Save audio file for record
+                        # try:
+                        #     save_dir = os.path.join("api", "data", "cry_detections")
+                        #     os.makedirs(save_dir, exist_ok=True)
+                        #     timestamp_str = datetime.fromtimestamp(timestamp).strftime('%Y%m%d_%H%M%S')
+                        #     audio_filename = f"cry_detected_{timestamp_str}.wav"
+                        #     audio_filepath = os.path.join(save_dir, audio_filename)
                             
-                            with open(audio_filepath, 'wb') as f:
-                                f.write(audio_data_bytes)
-                            logger.info(f"Saved cry detection audio to: {audio_filepath}")
-                        except Exception as e:
-                            logger.error(f"Failed to save audio file: {str(e)}")
+                        #     with open(audio_filepath, 'wb') as f:
+                        #         f.write(audio_data_bytes)
+                        #     logger.info(f"Saved cry detection audio to: {audio_filepath}")
+                        # except Exception as e:
+                        #     logger.error(f"Failed to save audio file: {str(e)}")
 
                         # Process cry detection through service
                         await cry_detection_service.process_cry_detection(
@@ -396,7 +396,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
     except Exception as e:
         logger.error(f"WebSocket connection error: {str(e)}")
     finally:
-        # Cleanup resources
+        # Handle final no-cry event BEFORE cleanup (so tracking data is still available)
+        try:
+            await cry_detection_service.handle_client_disconnect(client_id, skip_websocket=True)
+        except Exception as e:
+            logger.error(f"Error sending final no-cry notification: {str(e)}")
+        
+        # Cleanup resources after no-cry event is sent
         cry_detection_service.cleanup_device_tracking(client_id)
         connection_manager.disconnect(client_id)
 

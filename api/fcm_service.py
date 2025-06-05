@@ -36,6 +36,11 @@ DEFAULT_MESSAGES = {
 def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict[str, Any]] = None) -> bool:
     """Send a push notification using Firebase Cloud Messaging"""
     try:
+        # Skip empty or invalid tokens
+        if not token:  # Basic validation
+            logger.warning("Invalid FCM token provided")
+            return False
+
         message = messaging.Message(
             notification=messaging.Notification(title=title, body=body),
             android=messaging.AndroidConfig(
@@ -53,6 +58,16 @@ def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict
         logger.info(f"Successfully sent FCM notification: {response}")
         return True
         
+    except messaging.UnregisteredError:
+        # Token is no longer valid
+        logger.warning(f"FCM token is no longer valid: {token}")
+        return False
+    except messaging.SenderIdMismatchError:
+        logger.error("Sender ID mismatch in FCM token")
+        return False
+    except messaging.QuotaExceededError:
+        logger.error("FCM quota exceeded")
+        return False
     except Exception as e:
         logger.error(f"Error sending FCM notification: {str(e)}")
         return False
@@ -70,15 +85,23 @@ async def send_crying_notification_fcm(deviceId: str, tokens_with_info: List[Tup
             "device_id": deviceId,
         }
         
-        success = True
+        success = False  # Track if at least one notification was sent
+        invalid_tokens = []
+        
         for token, language, device_name in tokens_with_info:
             template = NOTIFICATION_TEMPLATES['crying'].get(language, NOTIFICATION_TEMPLATES['crying']['en'])
             
             title = template['title'].format(device_name=device_name)
             body = template['body'].format(duration=duration_str) if duration else DEFAULT_MESSAGES.get(language, DEFAULT_MESSAGES['en'])
             
-            if not send_fcm_notification(token, title, body, data):
-                success = False
+            if send_fcm_notification(token, title, body, data):
+                success = True
+            else:
+                invalid_tokens.append(token)
+        
+        if invalid_tokens:
+            logger.warning(f"Found {len(invalid_tokens)} invalid FCM tokens that should be cleaned up")
+            # TODO: Implement token cleanup logic here
                 
         return success
         
