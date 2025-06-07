@@ -37,8 +37,8 @@ def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict
     """Send a push notification using Firebase Cloud Messaging"""
     try:
         # Skip empty or invalid tokens
-        if not token:  # Basic validation
-            logger.warning("Invalid FCM token provided")
+        if not token or not token.strip():
+            logger.warning("Empty or invalid FCM token provided - skipping")
             return False
 
         message = messaging.Message(
@@ -58,14 +58,20 @@ def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict
         logger.info(f"Successfully sent FCM notification: {response}")
         return True
         
+    except messaging.UnregisteredError:
+        logger.warning(f"FCM token is unregistered - skipping token: {token[:20]}...")
+        return False
     except messaging.SenderIdMismatchError:
-        logger.error("Sender ID mismatch in FCM token")
+        logger.warning(f"Sender ID mismatch in FCM token - skipping token: {token[:20]}...")
+        return False
+    except messaging.InvalidArgumentError:
+        logger.warning(f"Invalid FCM token format - skipping token: {token[:20]}...")
         return False
     except messaging.QuotaExceededError:
-        logger.error("FCM quota exceeded")
+        logger.error("FCM quota exceeded - this affects all tokens")
         return False
     except Exception as e:
-        logger.error(f"Error sending FCM notification: {str(e)}")
+        logger.warning(f"Error sending FCM notification (skipping token): {str(e)}")
         return False
 
 async def send_crying_notification_fcm(deviceId: str, tokens_with_info: List[Tuple[str, str, str]], duration: Optional[float] = None) -> bool:
@@ -81,25 +87,32 @@ async def send_crying_notification_fcm(deviceId: str, tokens_with_info: List[Tup
             "device_id": deviceId,
         }
         
-        success = False  # Track if at least one notification was sent
-        invalid_tokens = []
+        success_count = 0
+        skipped_count = 0
+        total_tokens = len(tokens_with_info)
+        
+        logger.info(f"Attempting to send notifications to {total_tokens} FCM tokens")
         
         for token, language, device_name in tokens_with_info:
+            # Skip obviously invalid tokens
+            if not token or not token.strip():
+                skipped_count += 1
+                continue
+                
             template = NOTIFICATION_TEMPLATES['crying'].get(language, NOTIFICATION_TEMPLATES['crying']['en'])
             
             title = template['title'].format(device_name=device_name)
             body = template['body'].format(duration=duration_str) if duration else DEFAULT_MESSAGES.get(language, DEFAULT_MESSAGES['en'])
             
             if send_fcm_notification(token, title, body, data):
-                success = True
+                success_count += 1
             else:
-                invalid_tokens.append(token)
+                skipped_count += 1
         
-        if invalid_tokens:
-            logger.warning(f"Found {len(invalid_tokens)} invalid FCM tokens that should be cleaned up")
-            # TODO: Implement token cleanup logic here
-                
-        return success
+        logger.info(f"FCM notification results: {success_count} sent, {skipped_count} skipped out of {total_tokens} total")
+        
+        # Return True if at least one notification was sent successfully
+        return success_count > 0
         
     except Exception as e:
         logger.error(f"Error sending crying FCM notification: {str(e)}")

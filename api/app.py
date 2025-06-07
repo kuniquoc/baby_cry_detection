@@ -12,6 +12,7 @@ import wave
 import base64
 import numpy as np
 from datetime import datetime
+from contextlib import asynccontextmanager
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -33,47 +34,55 @@ from utils.error_handling import (
     AudioFormatError,
     handle_audio_error,
 )
+# Import Firebase service functions
+from firebase_service import start_service_and_listeners, stop_all_listeners
+
+# Initialize services and managers globally
+model_manager = ModelManager()
+connection_manager = ConnectionManager()
+cry_detection_service = CryDetectionService(connection_manager)
+detection_core = CryDetectionCore(model_manager)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan events"""
+    # Startup
+    try:
+        model_manager.load_model()
+        await cry_detection_service.start_periodic_check()
+        # Start Firebase service and listeners
+        await start_service_and_listeners()
+        logger.info("Services initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize services: {str(e)}")
+        raise
+    
+    yield
+    
+    # Shutdown
+    try:
+        # Send final no-cry events before stopping the service
+        await cry_detection_service.send_final_no_cry_events()
+        # Stop the periodic check
+        await cry_detection_service.stop_periodic_check()
+        # Stop all Firebase listeners
+        stop_all_listeners()
+        logger.info("Services cleaned up successfully")
+    except Exception as e:
+        logger.error(f"Error during service cleanup: {str(e)}")
+        raise
 
 # Initialize FastAPI app
 app = FastAPI(
     title="Baby Cry Detection API",
     description="API for detecting baby cry sounds in audio files",
     version="1.0.0",
+    lifespan=lifespan
 )
 
 # Set up templates and static files
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Initialize services and managers
-model_manager = ModelManager()
-connection_manager = ConnectionManager()
-cry_detection_service = CryDetectionService(connection_manager)
-detection_core = CryDetectionCore(model_manager)
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    try:
-        model_manager.load_model()
-        await cry_detection_service.start_periodic_check()
-        logger.info("Services initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize services: {str(e)}")
-        raise
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up services on shutdown"""
-    try:
-        # Send final no-cry events before stopping the service
-        await cry_detection_service.send_final_no_cry_events()
-        # Stop the periodic check
-        await cry_detection_service.stop_periodic_check()
-        logger.info("Services cleaned up successfully")
-    except Exception as e:
-        logger.error(f"Error during service cleanup: {str(e)}")
-        raise
 
 @app.get("/", response_class=HTMLResponse)
 async def get_root(request: Request):
@@ -412,6 +421,21 @@ async def health_check():
     if model_manager.model is None:
         return {"status": "warning", "message": "Model not loaded"}
     return {"status": "ok", "message": "Service is healthy"}
+
+@app.get("/firebase/status")
+async def firebase_status():
+    """Check Firebase service status"""
+    from firebase_service import device_states, firebase_initialized
+    
+    active_listeners = len(device_states.listeners)
+    tracked_devices = len(device_states.crying_threshold)
+    
+    return {
+        "firebase_initialized": firebase_initialized,
+        "active_listeners": active_listeners,
+        "tracked_devices": tracked_devices,
+        "listener_keys": list(device_states.listeners.keys())
+    }
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
