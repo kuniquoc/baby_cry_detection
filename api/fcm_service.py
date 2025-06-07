@@ -58,10 +58,6 @@ def send_fcm_notification(token: str, title: str, body: str, data: Optional[Dict
         logger.info(f"Successfully sent FCM notification: {response}")
         return True
         
-    except messaging.UnregisteredError:
-        # Token is no longer valid
-        logger.warning(f"FCM token is no longer valid: {token}")
-        return False
     except messaging.SenderIdMismatchError:
         logger.error("Sender ID mismatch in FCM token")
         return False

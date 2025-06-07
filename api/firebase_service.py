@@ -102,6 +102,10 @@ def should_create_notification(last_notification: Optional[Dict[str, Any]],
                             cry_threshold: float,
                             duration: float) -> bool:
     """Determine if a new notification should be created"""
+    # If cry_threshold is 0, do not create notifications
+    if cry_threshold == 0:
+        return False
+        
     if not last_notification:
         return duration >= cry_threshold
         
@@ -198,6 +202,8 @@ async def send_cry_notification(notification_data: Dict[str, Any]) -> bool:
                 else:
                     logger.warning(f"No FCM tokens found for device {device_id}")
                 logger.info(f"Created Crying notification with duration {duration:.2f}s for device {device_id}")
+            elif cry_threshold == 0:
+                logger.info(f"Cry threshold is 0 for device {device_id}, notifications disabled but events still tracked")
         
         return True
             

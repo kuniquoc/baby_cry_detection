@@ -15,7 +15,6 @@ class CryDetectionConfig:
     
     # Memory management
     MAX_TIMESTAMPS_TO_KEEP = 10        # Maximum number of timestamps to keep per device
-    MAX_TIMESTAMP_AGE = 30.0           # Maximum age of timestamps to keep (seconds)
     
     # Logging levels for different events
     LOG_LEVELS = {
@@ -55,5 +54,4 @@ Cry Detection Service Configuration:
 - No-cry check interval: {cls.NO_CRY_CHECK_SECONDS}s
 - Large gap reset threshold: {cls.LARGE_GAP_RESET_THRESHOLD}s
 - Max timestamps per device: {cls.MAX_TIMESTAMPS_TO_KEEP}
-- Max timestamp age: {cls.MAX_TIMESTAMP_AGE}s
 """

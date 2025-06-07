@@ -83,6 +83,8 @@ class CryDetectionService:
                                 )
                                 device_status['no_cry_sent'] = True
                                 device_status['waiting_for_no_cry'] = False  # Reset the waiting flag
+                                # Reset consecutive cry counting to start fresh after no_cry event
+                                self._reset_device_cry_tracking(client_id, "after no_cry event sent", set_no_cry_sent=False)
                             else:
                                 logger.warning(f"Failed to send no-cry notification for device {client_id}")
 
@@ -97,7 +99,6 @@ class CryDetectionService:
             'last_cry_time': None,
             'no_cry_sent': False,
             'consecutive_cry_timestamps': [],  # Store timestamps of consecutive cry detections
-            'cry_confirmed': False,
             'waiting_for_no_cry': False  # New flag to track if we're waiting for no_cry event
         }
 
@@ -112,9 +113,6 @@ class CryDetectionService:
             self.init_device_tracking(client_id)
 
         device_status = self.cry_status_tracker[client_id]
-        
-        # Clean up old timestamps first (do this before gap check)
-        self.cleanup_old_timestamps(client_id, timestamp)
         
         # Add current timestamp to consecutive cry list FIRST
         device_status['consecutive_cry_timestamps'].append(timestamp)
@@ -131,14 +129,13 @@ class CryDetectionService:
         consecutive_count = self._count_consecutive_cries(device_status['consecutive_cry_timestamps'])
         
         logger.debug(f"Cry detected for device {client_id} (consecutive: {consecutive_count}/{self.config.REQUIRED_CONSECUTIVE_CRIES}) at {convert_utc_timestamp_to_vn_datetime(timestamp)} with confidence {confidence:.2f}")
-        logger.debug(f"Device {client_id} timestamps: {device_status['consecutive_cry_timestamps']}, cry_confirmed: {device_status['cry_confirmed']}")
+        logger.debug(f"Device {client_id} timestamps: {device_status['consecutive_cry_timestamps']}, waiting_for_no_cry: {device_status.get('waiting_for_no_cry', False)}")
         
-        # Check if we have required consecutive cry detections and not already confirmed
-        if consecutive_count >= self.config.REQUIRED_CONSECUTIVE_CRIES and not device_status['cry_confirmed']:
+        # Check if we have required consecutive cry detections
+        if consecutive_count >= self.config.REQUIRED_CONSECUTIVE_CRIES:
             # Update last cry time and reset no_cry_sent flag
             device_status['last_cry_time'] = timestamp
             device_status['no_cry_sent'] = False
-            device_status['cry_confirmed'] = True
             
             logger.info(f"Cry CONFIRMED for device {client_id} after {self.config.REQUIRED_CONSECUTIVE_CRIES} consecutive detections at {convert_utc_timestamp_to_vn_datetime(timestamp)} with confidence {confidence:.2f}")
 
@@ -149,15 +146,14 @@ class CryDetectionService:
                 'confidence': confidence
             })
             
-            # Reset cry confirmation status and clear timestamps to allow next cry detection cycle
-            device_status['cry_confirmed'] = False
+            # Clear timestamps to reset consecutive counting, but keep other flags for tracking
             device_status['consecutive_cry_timestamps'] = []
             device_status['waiting_for_no_cry'] = True  # Set flag to indicate we're waiting for no_cry event
-            logger.debug(f"Reset cry confirmation for device {client_id} to allow next detection cycle, waiting for no_cry event")
+            logger.debug(f"Reset consecutive timestamps for device {client_id} to allow next detection cycle, waiting for no_cry event")
 
             return notification_sent
-        elif device_status['cry_confirmed'] or device_status.get('waiting_for_no_cry', False):
-            # If cry was already confirmed or we're waiting for no_cry, always update last cry time regardless of consecutive count
+        elif device_status.get('waiting_for_no_cry', False):
+            # If we're waiting for no_cry, always update last cry time regardless of consecutive count
             # This handles cases where there are gaps between cry detections
             device_status['last_cry_time'] = timestamp
             device_status['no_cry_sent'] = False
@@ -190,6 +186,8 @@ class CryDetectionService:
                         f"Last cry was at {device_status['last_cry_time']}, "
                         f"{current_time - device_status['last_cry_time']:.2f}s ago"
                     )
+                    # Reset consecutive cry counting after final no_cry event
+                    self._reset_device_cry_tracking(client_id, "after final no_cry event sent")
                 else:
                     logger.warning(f"Failed to send final no-cry event for device {client_id}")
             else:
@@ -230,6 +228,8 @@ class CryDetectionService:
                         f"Last cry was at {device_status['last_cry_time']}, "
                         f"{current_time - device_status['last_cry_time']:.2f}s ago"
                     )
+                    # Reset consecutive cry counting after disconnect no_cry event
+                    self._reset_device_cry_tracking(client_id, "after disconnect no_cry event sent")
                 else:
                     logger.warning(f"Failed to send no-cry notification for device {client_id} during disconnect")
             else:
@@ -273,30 +273,6 @@ class CryDetectionService:
                 
         return consecutive_count
 
-    def cleanup_old_timestamps(self, client_id: str, current_timestamp: float, max_age: float = None):
-        """Clean up old timestamps that are too old to be relevant
-        
-        Args:
-            client_id: Device client ID
-            current_timestamp: Current timestamp
-            max_age: Maximum age of timestamps to keep (seconds)
-                    If None, uses config value
-        """
-        if max_age is None:
-            max_age = self.config.MAX_TIMESTAMP_AGE
-        if client_id in self.cry_status_tracker:
-            device_status = self.cry_status_tracker[client_id]
-            old_count = len(device_status['consecutive_cry_timestamps'])
-            
-            # Filter out timestamps older than max_age
-            device_status['consecutive_cry_timestamps'] = [
-                ts for ts in device_status['consecutive_cry_timestamps'] 
-                if current_timestamp - ts <= max_age
-            ]
-            
-            new_count = len(device_status['consecutive_cry_timestamps'])
-            if old_count > new_count:
-                logger.debug(f"Cleaned up {old_count - new_count} old timestamps for device {client_id}")
 
     def check_and_reset_if_gap_too_large(self, client_id: str, current_timestamp: float, max_gap: float = None):
         """Check if there's a large gap since last cry and reset if needed
@@ -320,5 +296,27 @@ class CryDetectionService:
                 
                 if gap > max_gap:
                     logger.debug(f"Large gap detected ({gap:.1f}s) for device {client_id}, clearing old timestamps")
-                    # Only clear old timestamps, don't reset cry_confirmed status
+                    # Only clear old timestamps
                     device_status['consecutive_cry_timestamps'] = []
+
+    def _reset_device_cry_tracking(self, client_id: str, reason: str = "", set_no_cry_sent: bool = True):
+        """Reset consecutive cry counting and related flags for a device
+        
+        Args:
+            client_id: Device client ID
+            reason: Optional reason for the reset (for logging)
+            set_no_cry_sent: Whether to set no_cry_sent flag to True
+        """
+        if client_id in self.cry_status_tracker:
+            device_status = self.cry_status_tracker[client_id]
+            device_status['consecutive_cry_timestamps'] = []
+            device_status['last_cry_time'] = None
+            device_status['waiting_for_no_cry'] = False
+            
+            if set_no_cry_sent:
+                device_status['no_cry_sent'] = True
+            
+            log_msg = f"Reset consecutive cry counting for device {client_id}"
+            if reason:
+                log_msg += f" ({reason})"
+            logger.debug(log_msg)
