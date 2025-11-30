@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-"""
-Simple script to test Firebase connectivity.
-This script checks if the Firebase connection can be established.
-"""
-
 import firebase_service
 import fcm_service
 import logging
